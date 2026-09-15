@@ -1,0 +1,1124 @@
+<?php
+// ==============================================
+// روی سرور واقعی، خطاها فقط لاگ می‌شوند نه چاپ در صفحه
+// (قبلاً display_errors روشن بود؛ همین باعث می‌شد یک Warning یا
+// Notice ساده، خروجی JSON آپلود تصویر یا فرآیند ثبت را خراب کند و
+// به‌عنوان «خطای دیتابیس» به کاربر نمایش داده شود)
+// ==============================================
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/db_helpers.php';
+
+
+// ==============================================
+// پردازش آپلود تصاویر از طریق AJAX
+// ==============================================
+if (isset($_POST['action']) && $_POST['action'] === 'upload_images') {
+    header('Content-Type: application/json');
+    
+    $uploadedImages = [];
+    $uploadErrors = [];
+    $targetDir = __DIR__ . "/uploads/";
+    $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    $maxFileSize = 5 * 1024 * 1024;
+
+    // قبلاً این بخش هر خطایی (پوشه‌ی غیرقابل‌نوشتن، فرمت نامعتبر، حجم زیاد)
+    // را بی‌صدا نادیده می‌گرفت و همیشه success:true با images خالی برمی‌گرداند؛
+    // یعنی کاربر می‌دید «عکس آپلود نشد» بدون اینکه هیچ دلیلی نشان داده شود.
+    // حالا دلیل دقیق در پاسخ JSON برگردانده می‌شود.
+
+    if (!is_dir($targetDir)) {
+        @mkdir($targetDir, 0755, true);
+    }
+
+    if (!is_dir($targetDir) || !is_writable($targetDir)) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'پوشه‌ی uploads روی سرور وجود ندارد یا قابل نوشتن نیست. لطفاً از طریق File Manager هاست، به پوشه‌ی uploads دسترسی نوشتن (chmod 755) بده.',
+            'images' => [],
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $adId = 'AD-' . date('Ymd') . '-' . rand(1000, 9999);
+
+    if (isset($_FILES['images']) && is_array($_FILES['images']['name']) && count($_FILES['images']['name']) > 0) {
+        for ($i = 0; $i < count($_FILES['images']['name']); $i++) {
+            if (empty($_FILES['images']['name'][$i])) continue;
+
+            if ($_FILES['images']['error'][$i] !== UPLOAD_ERR_OK) {
+                $uploadErrors[] = $_FILES['images']['name'][$i] . ': کد خطای آپلود ' . $_FILES['images']['error'][$i];
+                continue;
+            }
+
+            if ($_FILES['images']['size'][$i] > $maxFileSize) {
+                $uploadErrors[] = $_FILES['images']['name'][$i] . ': حجم فایل بیش از ۵ مگابایت است.';
+                continue;
+            }
+
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mimeType = finfo_file($finfo, $_FILES['images']['tmp_name'][$i]);
+            finfo_close($finfo);
+
+            $fileExt = strtolower(pathinfo($_FILES['images']['name'][$i], PATHINFO_EXTENSION));
+
+            if (!in_array($mimeType, $allowedMimes) || !in_array($fileExt, $allowedExtensions)) {
+                $uploadErrors[] = $_FILES['images']['name'][$i] . ': فرمت تصویر مجاز نیست.';
+                continue;
+            }
+
+            $uniqueId = uniqid() . '_' . bin2hex(random_bytes(4));
+            $fileName = $adId . '_' . date('Ymd_His') . '_' . $uniqueId . '.' . $fileExt;
+            $fileName = preg_replace('/[^a-zA-Z0-9_\-.]/', '', $fileName);
+            $targetFile = $targetDir . $fileName;
+
+            if (move_uploaded_file($_FILES['images']['tmp_name'][$i], $targetFile)) {
+                $uploadedImages[] = 'uploads/' . $fileName;
+            } else {
+                $uploadErrors[] = $_FILES['images']['name'][$i] . ': ذخیره‌ی فایل روی سرور ناموفق بود.';
+            }
+        }
+    } else {
+        $uploadErrors[] = 'هیچ فایلی در درخواست ارسال دریافت نشد.';
+    }
+
+    echo json_encode([
+        'success' => count($uploadedImages) > 0,
+        'images' => $uploadedImages,
+        'adId' => $adId,
+        'errors' => $uploadErrors,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// ==============================================
+// فرم ثبت ملک - مخصوص آپارتمان
+// ==============================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_property'])) {
+    
+    // دریافت اطلاعات از فرم (از فیلدهای مخفی)
+    // قبلاً این مقدار از $_SESSION['reg_telegram_id'] خونده می‌شد که هیچ‌وقت
+    // ست نمی‌شد (همیشه خالی بود)؛ حالا از همون فیلد مخفی فرم می‌خونیم.
+    // نکته‌ی امنیتی: مقدار خودِ فیلد فرم (hidden_telegram_id) دیگر
+    // برای هویت معتبر نیست، چون کلاینت می‌تونست هر عددی توش بذاره.
+    // آی‌دی تلگرام معتبر فقط همونیه که سرور قبلاً (با بررسی امضای
+    // واقعی تلگرام در identity-sync.php) در سشن ثبت کرده.
+    $telegram_id = trim((string)($_SESSION['reg_telegram_id'] ?? ''));
+    $gender = $_POST['gender'] ?? '';
+    $last_name = $_POST['last_name'] ?? '';
+    $phone = $_POST['phone'] ?? '';
+    $transaction_type = $_POST['transaction_type'] ?? 'فروش';
+    $property_type = 'آپارتمان';
+    
+    // دریافت اطلاعات از فرم
+    $title = $_POST['title'] ?? '';
+    $location = $_POST['location'] ?? '';
+    $address = $_POST['address'] ?? '';
+    $description = $_POST['full_description'] ?? '';
+    $publish_photos = $_POST['publish_photos'] ?? 'yes';
+    
+    // دریافت مسیر تصاویر از فیلد مخفی
+    $imagePaths = isset($_POST['uploaded_images']) ? explode(',', $_POST['uploaded_images']) : [];
+    $uploadedImages = array_filter($imagePaths);
+
+    // ==============================================
+    // دریافت فیلدهای قیمت بر اساس نوع معامله
+    // ==============================================
+    $price_sell = '0';
+    $price_condition = '';
+    $deposit = '0';
+    $rent_monthly = '0';
+    $full_rent_enabled = '0';
+    $full_rent = '0';
+    $total_price = '0';
+    $down_payment = '0';
+    $payment_terms = '';
+    $exchange_interested = isset($_POST['exchange_interested']) ? '1' : '0';
+    $exchange_with = trim((string)($_POST['exchange_with'] ?? ''));
+    $visit_hours = trim((string)($_POST['visit_hours'] ?? ''));
+    $delivery_date = trim((string)($_POST['delivery_date'] ?? ''));
+    $vacancy_date = trim((string)($_POST['vacancy_date'] ?? ''));
+    $is_vacant = isset($_POST['is_vacant']) ? '1' : '0';
+
+    if ($transaction_type === 'فروش') {
+        $price_sell = $_POST['price_sell'] ?? '0';
+        $price_condition = isset($_POST['price_condition']) ? $_POST['price_condition'] : 'negotiable';
+    } elseif ($transaction_type === 'اجاره') {
+        $deposit = $_POST['deposit'] ?? '0';
+        $rent_monthly = $_POST['rent_monthly'] ?? '0';
+        $full_rent_enabled = isset($_POST['full_rent_enabled']) ? '1' : '0';
+        $full_rent = $_POST['full_rent'] ?? '0';
+    } elseif ($transaction_type === 'پیش فروش') {
+        $total_price = $_POST['total_price'] ?? '0';
+        $down_payment = $_POST['down_payment'] ?? '0';
+        $payment_terms = $_POST['payment_terms'] ?? '';
+    }
+
+    // ==============================================
+    // اعتبارسنجی سمت سرور
+    // ==============================================
+    $errors = [];
+
+    // گام ۱: اطلاعات تماس (به جز لوکیشن اجباری)
+    if (empty($gender) || !in_array($gender, ['آقا', 'خانم'])) $errors[] = 'لطفاً جنسیت خود را انتخاب کنید.';
+    if (empty($last_name)) $errors[] = 'لطفاً نام خانوادگی خود را وارد کنید.';
+    if (empty($phone)) $errors[] = 'لطفاً شماره تماس خود را وارد کنید.';
+
+    // گام ۲: مشخصات اجباری
+    if (empty($_POST['area_apt'])) $errors[] = 'لطفاً متراژ ملک را وارد کنید.';
+    if (empty($_POST['floor'])) $errors[] = 'لطفاً طبقه ملک را وارد کنید.';
+    if (empty($_POST['rooms_apt']) || $_POST['rooms_apt'] === '') $errors[] = 'لطفاً تعداد اتاق را انتخاب کنید.';
+    if (empty($_POST['year_apt'])) $errors[] = 'لطفاً سال ساخت ملک را وارد کنید.';
+
+    // گام ۴: قیمت بر اساس نوع معامله
+    $isSell = ($transaction_type === 'فروش');
+    $isPreSell = ($transaction_type === 'پیش فروش');
+    $isRent = ($transaction_type === 'اجاره');
+
+    if ($isSell && empty($_POST['price_sell'])) {
+        $errors[] = 'لطفاً قیمت فروش را وارد کنید.';
+    }
+    if ($isPreSell && empty($_POST['total_price'])) {
+        $errors[] = 'لطفاً قیمت کل (پیش فروش) را وارد کنید.';
+    }
+    if ($isRent) {
+        $full_rent_enabled = isset($_POST['full_rent_enabled']) ? '1' : '0';
+        if ($full_rent_enabled === '1') {
+            if (empty($_POST['full_rent'])) {
+                $errors[] = 'لطفاً مبلغ رهن کامل را وارد کنید.';
+            }
+        } else {
+            if (empty($_POST['deposit'])) {
+                $errors[] = 'لطفاً مبلغ ودیعه را وارد کنید.';
+            }
+            if (empty($_POST['rent_monthly'])) {
+                $errors[] = 'لطفاً مبلغ اجاره ماهانه را وارد کنید.';
+            }
+        }
+    }
+
+    // اگر خطایی وجود داشت، نمایش داده و متوقف کن
+    if (!empty($errors)) {
+        echo "<!DOCTYPE html>
+        <html>
+        <head><meta charset='UTF-8'><title>خطا در ثبت</title></head>
+        <body style='font-family: Vazirmatn, sans-serif; text-align: center; padding: 50px; direction: rtl; background: #f3f4f6;'>
+            <div style='background: #fff; max-width: 500px; margin: 0 auto; padding: 30px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 4px 10px rgba(0,0,0,0.05);'>
+                <h3 style='color: #ef4444; margin-bottom: 20px;'>❌ اطلاعات ناقص است!</h3>
+                <div style='background: #fee2e2; border: 1px solid #fca5a5; border-radius: 8px; padding: 15px; text-align: right; margin-bottom: 20px;'>";
+        foreach ($errors as $err) {
+            echo "<p style='margin: 5px 0; color: #b91c1c; font-weight: 600;'>- $err</p>";
+        }
+        echo "    </div>
+                <a href='javascript:history.back()' style='display: inline-block; padding: 12px 24px; background: #064e4e; color: #fff; text-decoration: none; border-radius: 8px;'>بازگشت و اصلاح</a>
+            </div>
+        </body>
+        </html>";
+        exit;
+    }
+
+    // ==============================================
+    // ذخیره اصلی در دیتابیس MySQL
+    // ==============================================
+    $adId = 'AD-' . date('Ymd') . '-' . rand(1000, 9999);
+    $newAd = [
+        'id' => $adId,
+        'title' => $title,
+        'location' => $location,
+        'address' => $address,
+        'status' => 'pending',
+        'tags' => [],
+        'gender' => $gender,
+        'last_name' => $last_name,
+        'phone' => $phone,
+        'propertyType' => $property_type,
+        'transactionType' => $transaction_type,
+        'area' => $_POST['area_apt'] ?? '0',
+        'floor' => $_POST['floor'] ?? '0',
+        'rooms' => $_POST['rooms_apt'] ?? '0',
+        'year' => $_POST['year_apt'] ?? '1403',
+        'flooring' => $_POST['flooring_apt'] ?? '',
+        'cabinet' => $_POST['cabinet_apt'] ?? '',
+        'cooling' => $_POST['cooling_apt'] ?? '',
+        'heating' => $_POST['heating_apt'] ?? '',
+        'amenities' => isset($_POST['amenities_apt']) ? array_values($_POST['amenities_apt']) : [],
+        'description' => $description,
+        'images' => $uploadedImages,
+        'selectedImages' => $uploadedImages,
+        'publish_photos' => $publish_photos,
+        'created_at' => date('Y-m-d H:i:s'),
+        'price_sell' => $price_sell,
+        'price_condition' => $price_condition,
+        'deposit' => $deposit,
+        'rent_monthly' => $rent_monthly,
+        'full_rent_enabled' => $full_rent_enabled,
+        'full_rent' => $full_rent,
+        'total_price' => $total_price,
+        'down_payment' => $down_payment,
+        'payment_terms' => $payment_terms,
+        'display_price' => $price_sell ?: ($total_price ?: ($deposit ?: $rent_monthly)),
+        // فیلدهای جدید که فعلاً در دیتابیس ذخیره نمی‌شوند اما در فرم وجود دارند
+        'is_not_keyed' => isset($_POST['is_not_keyed']) ? '1' : '0',
+        'exchange_interested' => $exchange_interested,
+        'exchange_with' => $exchange_with,
+        'visit_hours' => $visit_hours,
+        'delivery_date' => $delivery_date,
+        'vacancy_date' => $vacancy_date,
+        'is_vacant' => $is_vacant,
+    ];
+
+    // ==============================================
+    // ذخیره اصلی آگهی در MySQL
+    // JSON دیگر منبع ذخیره‌سازی نیست.
+    // ==============================================
+    require_once __DIR__ . '/property-db-helper.php';
+
+    if (!isset($pdo) || !($pdo instanceof PDO)) {
+        http_response_code(500);
+        echo "<div style='direction:rtl;text-align:center;padding:40px;font-family:Vazirmatn,sans-serif'>❌ اتصال به دیتابیس برقرار نشد.</div>";
+        exit;
+    }
+
+    $dbResult = savePropertyToDatabase($pdo, $newAd);
+    if ($dbResult['success']) {
+        if ($telegram_id !== '') {
+            $_SESSION['reg_telegram_id'] = $telegram_id;
+        }
+
+        // نکته‌ی امنیتی: تایپ‌کردن یک شماره در فرم، اثبات مالکیت آن
+        // نیست. قبلاً اینجا $_SESSION['user_phone'] بی‌قیدوشرط با
+        // همین $phone پر می‌شد؛ یعنی اگه کسی به‌جای شماره‌ی خودش
+        // شماره‌ی یک نفر دیگه رو تایپ می‌کرد، سشنش به هویت اون فرد
+        // وصل می‌شد و «ملک‌های من»/«درخواست‌های من» اون فرد رو
+        // می‌دید! حالا این وصل‌شدن فقط وقتی انجام می‌شه که واقعاً
+        // خودِ این مرورگر صاحب اون شماره باشه (شماره‌ی تازه، یا توکن
+        // معتبرِ ذخیره‌شده از ثبت‌نام قبلی همین مرورگر).
+        $providedToken = $_COOKIE['melkino_access_token'] ?? '';
+        $identity = melkinoUpsertUser($telegram_id, $phone, $last_name, '', $providedToken);
+
+        if (!empty($identity['trusted'])) {
+            if ($phone !== '') {
+                $_SESSION['user_phone'] = $phone;
+            }
+            if ($last_name !== '') {
+                $_SESSION['user_name'] = $last_name;
+            }
+            if (!empty($identity['token'])) {
+                setcookie('melkino_access_token', $identity['token'], time() + 31536000, '/', '', false, true);
+            }
+        }
+    }
+    if (!$dbResult['success']) {
+        http_response_code(500);
+        echo "<!DOCTYPE html><html lang='fa' dir='rtl'><head><meta charset='UTF-8'><title>خطا در ثبت</title></head><body style='font-family:Vazirmatn,sans-serif;text-align:center;padding:50px;background:#f3f4f6;'><div style='background:#fff;max-width:650px;margin:auto;padding:30px;border-radius:14px;border:1px solid #e5e7eb;'><h3 style='color:#dc2626'>❌ ثبت آگهی انجام نشد</h3><p style='line-height:2;color:#374151'>خطایی هنگام ذخیره اطلاعات در دیتابیس رخ داد. اطلاعات فرم تغییر نکرده است.</p><a href='javascript:history.back()' style='display:inline-block;padding:12px 24px;background:#064e4e;color:#fff;text-decoration:none;border-radius:8px'>بازگشت و اصلاح</a></div></body></html>";
+        exit;
+    }
+
+
+
+    // نمایش پیام موفقیت
+    echo "<!DOCTYPE html>
+    <html>
+    <head><meta charset='UTF-8'><title>ثبت موفق</title></head>
+    <body style='font-family: Vazirmatn, sans-serif; text-align: center; padding: 50px; direction: rtl;'>
+        <h2 style='color: green;'>✅ آگهی با موفقیت ثبت شد!</h2>
+        <p>شناسه پیگیری: <strong style='direction: ltr; display: inline-block;'>" . $newAd['id'] . "</strong></p>
+        <p>اطلاعات شما ذخیره شد. به زودی با شما تماس می‌گیریم.</p>
+        <a href='home.php' style='display: inline-block; margin-top: 20px; padding: 12px 24px; background: #064e4e; color: #fff; text-decoration: none; border-radius: 8px;'>بازگشت به خانه</a>
+        <script>setTimeout(function() { window.location.href = 'home.php'; }, 3000);</script>
+    </body>
+    </html>";
+    exit;
+}
+
+require_once 'header.php';
+?>
+<style>
+    .main-content { flex: 1; overflow-y: auto; background: var(--bg); display: flex; flex-direction: column; padding-bottom: 75px; }
+    .stepper-container { padding: var(--space-2) var(--space-3); display: flex; align-items: center; gap: var(--space-1); background: var(--surface); flex-shrink: 0; }
+    .step-content { display: none; padding: 0 var(--space-3); flex-direction: column; gap: var(--space-2); animation: fadeIn 0.3s ease forwards; }
+    .step-content.active { display: flex; }
+    
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .step-title { font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: var(--space-1); }
+    .step-subtitle { font-size: 14px; color: var(--text-secondary); margin-bottom: var(--space-2); }
+    
+    .preview-section { margin-bottom: var(--space-3); }
+    .preview-card { background: var(--surface); border-radius: var(--radius-md); padding: var(--space-3); border: 1px solid var(--border); margin-bottom: var(--space-2); }
+    .preview-card-title { font-size: 16px; font-weight: 700; color: var(--primary); margin-bottom: var(--space-2); border-bottom: 1px solid var(--border); padding-bottom: var(--space-1); }
+    .preview-row { display: flex; justify-content: space-between; padding: var(--space-1) 0; border-bottom: 1px solid var(--border); }
+    .preview-row:last-child { border-bottom: none; }
+    .preview-label { color: var(--text-secondary); font-weight: 600; }
+    .preview-value { color: var(--text-primary); font-weight: 500; text-align: left; direction: ltr; }
+    .preview-value.rtl { direction: rtl; text-align: right; }
+    
+    .image-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: var(--space-1); margin-top: var(--space-2); }
+    .image-preview-item { position: relative; width: 100%; aspect-ratio: 1/1; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg); }
+    .image-preview-item img { width: 100%; height: 100%; object-fit: cover; }
+    .image-preview-item .remove-btn { position: absolute; top: 2px; right: 2px; background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; color: var(--danger); font-weight: bold; display: flex; justify-content: center; align-items: center; }
+
+    .form-group { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-2); }
+    .form-group label { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+    .form-input, .form-select, .form-textarea { width: 100%; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg); padding: 0 var(--space-2); font-size: 15px; font-family: 'Vazirmatn', sans-serif; color: var(--text-primary); outline: none; transition: border 0.2s ease; }
+    .form-textarea { height: 100px; padding-top: var(--space-2); resize: none; }
+    .row-half { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+    
+    .upload-area { width: 100%; height: 120px; border: 2px dashed var(--border); border-radius: var(--radius-md); background: var(--bg); display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--text-secondary); gap: var(--space-1); cursor: pointer; transition: 0.3s; }
+    .upload-area:hover { border-color: var(--primary); }
+    
+    .bottom-actions {
+        position: sticky;
+        bottom: 0;        
+        width: 100%;
+        padding: var(--space-2) var(--space-3);
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: center;
+        gap: var(--space-2);
+        z-index: 999;
+        box-sizing: border-box;
+        margin-top: var(--space-3);
+        margin-bottom: 35px;
+    }
+    .btn-secondary, .btn-primary-full { height: 52px; border-radius: var(--radius-md); font-weight: 700; font-size: 16px; display: flex; justify-content: center; align-items: center; padding: 0 var(--space-2); box-sizing: border-box; border: none; flex: 1; transition: all 0.2s ease; }
+    .btn-secondary { background: var(--bg); color: var(--text-secondary); border: 1px solid var(--border); }
+    .btn-primary-full { background: var(--primary); color: #ffffff; }
+    #fullRentGroup { display: none; }
+    #fullRentGroup.visible { display: block; }
+    #exchangeGroup { display: none; }
+    #exchangeGroup.visible { display: block; }
+    
+    .radio-group { display: flex; gap: var(--space-3); margin-top: var(--space-1); flex-wrap: wrap; }
+    .radio-label { display: flex; align-items: center; gap: var(--space-1); font-size: 14px; color: var(--text-primary); cursor: pointer; }
+    .radio-label input[type="radio"] { width: 18px; height: 18px; accent-color: var(--primary); }
+</style>
+
+<div class="stepper-container">
+    <span class="step-text" id="stepText">مرحله ۱ از ۵</span>
+    <div class="step-line active" id="line1"></div>
+    <div class="step-line" id="line2"></div>
+    <div class="step-line" id="line3"></div>
+    <div class="step-line" id="line4"></div>
+</div>
+
+<div class="main-content" id="mainContent">
+    <form method="POST" action="" id="propertyForm" enctype="multipart/form-data" novalidate>
+        <!-- ===== فیلدهای مخفی برای اطلاعات کاربر ===== -->
+        <input type="hidden" name="gender" id="hidden_gender" value="">
+        <input type="hidden" name="last_name" id="hidden_last_name" value="">
+        <input type="hidden" name="phone" id="hidden_phone" value="">
+        <input type="hidden" name="telegram_id" id="hidden_telegram_id" value="">
+        <input type="hidden" name="transaction_type" id="hidden_transaction_type" value="">
+        <input type="hidden" name="uploaded_images" id="uploaded_images" value="">
+        
+        <!-- STEP 1 -->
+        <div class="step-content active" id="step1">
+            <h2 class="step-title">اطلاعات پایه و موقعیت</h2>
+            <div class="form-group"><label>عنوان آگهی</label><input type="text" class="form-input" id="regTitle" name="title" placeholder="۱۲۰ متری نوساز خ فردوسی" required></div>
+            <div class="form-group"><label>محله / خیابان اصلی</label><input type="text" class="form-input" id="regLocation" name="location" placeholder="خیابان بهار" required></div>
+            <div class="form-group"><label>آدرس دقیق</label><input type="text" class="form-input" id="regAddress" name="address" placeholder="خ بهار کوچه بیستم..." required></div>
+        </div>
+
+        <!-- STEP 2 -->
+        <div class="step-content" id="step2">
+            <h2 class="step-title">مشخصات آپارتمان</h2>
+            <!-- بخش‌های پویا توسط جاوا‌اسکریپت کنترل می‌شوند -->
+            <div id="step2Dynamic">
+                <div class="row-half">
+                    <div class="form-group"><label>متراژ (متر مربع)</label><input type="text" class="form-input numeric-input" id="regMinAreaApt" name="area_apt" placeholder="۹۰" required></div>
+                    <div class="form-group"><label>طبقه</label><input type="text" class="form-input numeric-input" id="regFloor" name="floor" placeholder="۳" required></div>
+                </div>
+                <div class="row-half">
+                    <div class="form-group"><label>تعداد کل واحدها</label><input type="text" class="form-input numeric-input" id="regTotalUnits" name="total_units" placeholder="۲۰"></div>
+                    <div class="form-group"><label>تعداد اتاق</label><select class="form-select" id="regRoomsApt" name="rooms_apt" required><option value="">انتخاب کنید</option><option value="۱">۱</option><option value="۲">۲</option><option value="۳">۳</option><option value="۴">۴</option></select></div>
+                </div>
+
+                <!-- گزینه کلید نخورده (فقط در فروش) -->
+                <div id="notKeyedContainer">
+                    <div class="form-group" style="display:flex; flex-direction:column; gap:var(--space-1);">
+                        <label style="font-size:14px;font-weight:600;color:var(--text-primary);">کلید نخورده</label>
+                        <div style="display:flex; align-items:center; gap:var(--space-1);">
+                            <input type="checkbox" id="regIsNotKeyed" name="is_not_keyed" value="1" style="width:18px;height:18px;accent-color:var(--primary);">
+                            <span style="font-size:12px;color:var(--text-secondary);">این ملک کلید نخورده است</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row-half" id="yearRow">
+                    <div class="form-group"><label>سال ساخت</label><input type="text" class="form-input numeric-input" id="regYearApt" name="year_apt" placeholder="۱۴۰۲" required></div>
+                    <div class="form-group" id="deliveryDateContainer" style="display:none;">
+                        <label>تاریخ تحویل</label>
+                        <input type="date" class="form-input" id="regDeliveryDate" name="delivery_date">
+                    </div>
+                </div>
+
+                <!-- فیلدهای اجاره (تاریخ تخلیه و واحد تخلیه است) -->
+                <div id="rentalFieldsContainer" style="display:none;">
+                    <div class="row-half">
+                        <div class="form-group">
+                            <label>تاریخ تخلیه</label>
+                            <input type="date" class="form-input" id="regVacancyDate" name="vacancy_date">
+                        </div>
+                        <div class="form-group" style="display:flex; flex-direction:column; gap:var(--space-1);">
+                            <label style="font-size:14px;font-weight:600;color:var(--text-primary);">واحد تخلیه است</label>
+                            <div style="display:flex; align-items:center; gap:var(--space-1);">
+                                <input type="checkbox" id="regIsVacant" name="is_vacant" value="1" style="width:18px;height:18px;accent-color:var(--primary);" onchange="toggleVacancy()">
+                                <span style="font-size:12px;color:var(--text-secondary);">در حال حاضر واحد تخلیه است</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row-half">
+                    <div class="form-group"><label>نوع پوشش کف</label><select class="form-select" id="regFlooringApt" name="flooring_apt"><option>سرامیک</option><option>پارکت</option><option>موکت</option><option>سنگ</option><option>موزاییک</option><option>سیمان</option><option>کفپوش</option></select></div>
+                    <div class="form-group"><label>نوع کابینت</label><select class="form-select" id="regCabinetApt" name="cabinet_apt"><option>ام دی اف</option><option>هایگلاس</option><option>چوبی</option><option>فلزی</option><option>ندارد</option></select></div>
+                </div>
+                <div class="row-half">
+                    <div class="form-group"><label>سیستم سرمایش</label><select class="form-select" id="regCoolingApt" name="cooling_apt"><option>کولر آبی</option><option>اسپیلت</option><option>داکت اسپلیت</option><option>چیلر</option><option>پنکه سقفی</option><option>ندارد</option></select></div>
+                    <div class="form-group"><label>سیستم گرمایش</label><select class="form-select" id="regHeatingApt" name="heating_apt"><option>بخاری</option><option>شوفاژ</option><option>پکیج رادیاتور</option><option>ندارد</option></select></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STEP 3 -->
+        <div class="step-content" id="step3">
+            <h2 class="step-title">امکانات</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-1);">
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="آسانسور"> آسانسور</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="پارکینگ"> پارکینگ</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="انباری"> انباری</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="مطبخ"> مطبخ</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="بالکن / تراس"> بالکن / تراس</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="حیاط اختصاصی"> حیاط اختصاصی</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="روف گاردن"> روف گاردن</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="لاندری روم"> لاندری روم</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="کلوزت"> کلوزت</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="اتاق مستر"> اتاق مستر</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="نگهبانی"> نگهبانی</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="استخر"> استخر</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="سونا"> سونا</label>
+                <label style="display:flex;align-items:center;gap:var(--space-1);"><input type="checkbox" name="amenities_apt[]" value="جکوزی"> جکوزی</label>
+            </div>
+        </div>
+
+        <!-- STEP 4 -->
+        <div class="step-content" id="step4">
+            <h2 class="step-title">قیمت</h2>
+            
+            <div id="price-sell" style="display:none;">
+                <div class="form-group"><label>قیمت (تومان)</label><input type="text" class="form-input price-input" name="price_sell" placeholder="۲,۸۰۰,۰۰۰,۰۰۰"></div>
+                <div style="display:flex;gap:var(--space-2);margin-top:var(--space-1);">
+                    <label><input type="checkbox" name="price_condition" value="negotiable" onchange="togglePriceCondition(this,'fixed')"> قابل مذاکره</label>
+                    <label><input type="checkbox" name="price_condition" value="fixed" onchange="togglePriceCondition(this,'negotiable')"> مقطوع</label>
+                </div>
+                <div style="margin-top:var(--space-2);">
+                    <label style="display:flex;align-items:center;gap:var(--space-1);">
+                        <input type="checkbox" id="exchangeCheckbox" name="exchange_interested" value="1" onchange="toggleExchange()">
+                        مایل به معاوضه هستم
+                    </label>
+                    <div id="exchangeGroup" style="margin-top:var(--space-1);">
+                        <div class="form-group">
+                            <label>معاوضه با:</label>
+                            <textarea class="form-textarea" name="exchange_with" placeholder="مثلاً: معاوضه با آپارتمان بزرگ‌تر یا معاوضه با ویلایی یا ... برای ما شرایط خود را توضیح دهید." rows="3" disabled></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="price-rent" style="display:none;">
+                <div class="row-half">
+                    <div class="form-group"><label>ودیعه</label><input type="text" class="form-input price-input" name="deposit" placeholder="۵۰۰,۰۰۰,۰۰۰"></div>
+                    <div class="form-group"><label>اجاره ماهانه</label><input type="text" class="form-input price-input" name="rent_monthly" placeholder="۳۰,۰۰۰,۰۰۰"></div>
+                </div>
+                <div style="margin-top:var(--space-1);"><label><input type="checkbox" id="fullRentCheckbox" onchange="toggleFullRent()"> رهن کامل</label></div>
+                <div id="fullRentGroup"><div class="form-group"><label>مبلغ رهن کامل</label><input type="text" class="form-input price-input" name="full_rent" placeholder="۱,۰۰۰,۰۰۰,۰۰۰"></div></div>
+            </div>
+
+            <div id="price-pre-sell" style="display:none;">
+                <div class="form-group"><label>قیمت کل</label><input type="text" class="form-input price-input" name="total_price" placeholder="۳,۰۰۰,۰۰۰,۰۰۰"></div>
+                <div class="form-group"><label>پیش‌پرداخت</label><input type="text" class="form-input price-input" name="down_payment" placeholder="۹۰۰,۰۰۰,۰۰۰"></div>
+                <div class="form-group"><label>شرایط پرداخت</label><textarea class="form-textarea" name="payment_terms" rows="3" placeholder="مثال: ۳۰٪ قرارداد، ۲۰٪ اسکلت..."></textarea></div>
+            </div>
+
+            <script>
+                const step4TransType = sessionStorage.getItem('reg_transaction_type') || 'فروش';
+                if (step4TransType === 'فروش') {
+                    document.getElementById('price-sell').style.display = 'block';
+                    document.getElementById('exchangeGroup').classList.remove('visible');
+                    document.querySelector('#exchangeGroup textarea').disabled = true;
+                } else if (step4TransType === 'اجاره') {
+                    document.getElementById('price-rent').style.display = 'block';
+                    const fullRentCheckbox = document.getElementById('fullRentCheckbox');
+                    if (fullRentCheckbox) {
+                        toggleFullRent();
+                    }
+                } else if (step4TransType === 'پیش فروش') {
+                    document.getElementById('price-pre-sell').style.display = 'block';
+                }
+            </script>
+        </div>
+
+        <!-- ===== STEP 5 ===== -->
+        <div class="step-content" id="step5">
+            <h2 class="step-title">تصاویر، توضیحات و ثبت نهایی</h2>
+            
+            <!-- بخش اول: آپلود تصاویر با AJAX (با کلیک) -->
+            <div class="form-group">
+                <label>آپلود تصاویر (حداکثر ۵ مگابایت، فرمت JPG, PNG, WEBP)</label>
+                <div id="dropZone" class="upload-area" style="cursor:pointer; text-align:center; padding:20px;" onclick="document.getElementById('fileInput').click()">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                    <br>
+                    <span>برای آپلود تصاویر کلیک کنید یا بکشید و رها کنید</span>
+                    <br>
+                    <small style="color:var(--text-secondary);">حداکثر ۵ مگابایت - فرمت‌های مجاز: JPG, PNG, WEBP</small>
+                </div>
+                <input type="file" id="fileInput" name="images[]" accept="image/jpeg,image/png,image/webp" multiple style="display:none;" onchange="handleImageUpload(this)">
+                <div id="uploadProgress" style="display:none; margin-top:8px;">
+                    <div style="width:100%; height:6px; background:var(--border); border-radius:3px; overflow:hidden;">
+                        <div id="progressBar" style="width:0%; height:100%; background:var(--primary); transition:width 0.3s;"></div>
+                    </div>
+                    <span id="progressText" style="font-size:13px; color:var(--text-secondary);">در حال آپلود...</span>
+                </div>
+                <div id="imagePreviewContainer" class="image-preview-grid"></div>
+            </div>
+
+            <!-- ===== گزینه جدید: انتخاب حالت انتشار تصاویر (بعد از آپلود و فقط در صورت وجود عکس) ===== -->
+            <div id="publishOptionsContainer" style="display: none; margin-top: var(--space-2);">
+                <div class="form-group">
+                    <label>انتخاب حالت انتشار تصاویر</label>
+                    <div class="radio-group">
+                        <label class="radio-label"><input type="radio" name="publish_photos" value="yes" checked> مایل به انتشار عکس‌ها در آگهی هستم</label>
+                        <label class="radio-label"><input type="radio" name="publish_photos" value="no"> مایل به انتشار عکس‌ها در آگهی نیستم و فقط عکس‌ها به مشتریان حضوری نمایش داده شود</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- بخش دوم: توضیحات تکمیلی -->
+            <div class="form-group">
+                <label>توضیحات تکمیلی (حداکثر ۱۰۰۰ کاراکتر)</label>
+                <textarea class="form-textarea" id="regFullDesc" name="full_description" placeholder="شرح کامل امکانات و شرایط ملک..." maxlength="1000" oninput="document.getElementById('charCount').innerText = this.value.length"></textarea>
+                <small style="color:var(--text-secondary);">کاراکتر وارد شده: <span id="charCount">0</span> / ۱۰۰۰</small>
+            </div>
+
+            <!-- بخش جدید: زمان بازدید -->
+            <div class="form-group" style="margin-top:var(--space-1);">
+                <label>چه زمان‌هایی میشه بازدید کرد؟</label>
+                <textarea class="form-textarea" name="visit_hours" rows="3" placeholder="مثال: فقط عصرها میشه بازدید کرد یا همیشه میشه بازدید کرد با هماهنگی قبلی یک ساعت زودتر یا ..."></textarea>
+            </div>
+
+            <!-- بخش سوم: پیش‌نمایش نهایی -->
+            <div id="finalPreviewContainer" style="display:none;">
+                <div class="preview-card">
+                    <div class="preview-card-title">📋 پیش‌نمایش نهایی آگهی</div>
+                    <div id="previewContent"></div>
+                </div>
+
+                <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-3);">
+                    <button type="button" class="btn-secondary" onclick="editPreview()" style="flex:1;max-width:none;">ویرایش اطلاعات</button>
+                    <button type="submit" name="submit_property" class="btn-primary-full" style="flex:1;max-width:none;">ثبت نهایی آگهی</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== دکمه‌های ناوبری (درون فرم) ===== -->
+        <div class="bottom-actions">
+            <button type="button" class="btn-secondary" id="prevBtn" onclick="changeStep(-1)" style="display:none;">مرحله قبل</button>
+            <button type="button" class="btn-primary-full" id="nextBtn" onclick="changeStep(1)">مرحله بعد</button>
+        </div>
+    </form>
+</div>
+
+<script>
+    // ==============================================
+    // خواندن اطلاعات کاربر از sessionStorage
+    // ==============================================
+    document.addEventListener('DOMContentLoaded', function() {
+        const gender = sessionStorage.getItem('reg_gender') || 'آقا';
+        const lastName = sessionStorage.getItem('reg_last_name') || '';
+        const phone = sessionStorage.getItem('reg_phone') || '';
+        const telegramId = sessionStorage.getItem('reg_telegram_id') || '';
+        const transactionType = sessionStorage.getItem('reg_transaction_type') || 'فروش';
+        
+        document.getElementById('hidden_gender').value = gender;
+        document.getElementById('hidden_last_name').value = lastName;
+        document.getElementById('hidden_phone').value = phone;
+        document.getElementById('hidden_telegram_id').value = telegramId;
+        document.getElementById('hidden_transaction_type').value = transactionType;
+        
+        console.log('اطلاعات کاربر:', { gender, lastName, phone, transactionType });
+        
+        if (!lastName || !phone) {
+            alert('لطفاً ابتدا اطلاعات تماس خود را در مرحله اول ثبت کنید.');
+            window.location.href = 'register-step1.php';
+        }
+        
+        // ==============================================
+        // Drag and Drop
+        // ==============================================
+        const dropZone = document.getElementById('dropZone');
+        
+        dropZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.style.borderColor = 'var(--primary)';
+            this.style.background = 'var(--gold-bg)';
+        });
+        
+        dropZone.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            this.style.borderColor = 'var(--border)';
+            this.style.background = 'var(--bg)';
+        });
+        
+        dropZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.style.borderColor = 'var(--border)';
+            this.style.background = 'var(--bg)';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const fileInput = document.getElementById('fileInput');
+                fileInput.files = files;
+                handleImageUpload(fileInput);
+            }
+        });
+
+        // ==============================================
+        // به‌روزرسانی فیلدهای استپ ۲ بر اساس نوع معامله
+        // ==============================================
+        updateStep2Fields(transactionType);
+    });
+
+    let currentStep = 1;
+    const totalSteps = 5;
+    const transType = sessionStorage.getItem('reg_transaction_type') || 'فروش';
+    let uploadedImages = [];
+
+    // ===================== توابع قیمت =====================
+    function togglePriceCondition(el, otherVal) {
+        const parent = el.closest('div');
+        const other = parent.querySelector(`input[value="${otherVal}"]`);
+        if (el.checked && other) other.checked = false;
+    }
+
+    function toggleFullRent() {
+        const chk = document.getElementById('fullRentCheckbox');
+        const grp = document.getElementById('fullRentGroup');
+        const inp = grp.querySelector('input');
+        const depositInput = document.querySelector('input[name="deposit"]');
+        const rentInput = document.querySelector('input[name="rent_monthly"]');
+
+        if (chk.checked) {
+            grp.classList.add('visible');
+            inp.disabled = false;
+            depositInput.required = false;
+            rentInput.required = false;
+        } else {
+            grp.classList.remove('visible');
+            inp.disabled = true;
+            inp.required = false;
+            inp.value = '';
+            depositInput.required = false;
+            rentInput.required = false;
+        }
+    }
+
+    function toggleExchange() {
+        const chk = document.getElementById('exchangeCheckbox');
+        const grp = document.getElementById('exchangeGroup');
+        const inp = grp.querySelector('textarea');
+        
+        if (chk.checked) {
+            grp.classList.add('visible');
+            inp.disabled = false;
+            inp.required = false;
+        } else {
+            grp.classList.remove('visible');
+            inp.disabled = true;
+            inp.required = false;
+            inp.value = '';
+        }
+    }
+
+    // ===================== توابع استپ ۲ =====================
+    function updateStep2Fields(transactionType) {
+        const notKeyedContainer = document.getElementById('notKeyedContainer');
+        const deliveryDateContainer = document.getElementById('deliveryDateContainer');
+        const rentalFieldsContainer = document.getElementById('rentalFieldsContainer');
+        const yearRow = document.getElementById('yearRow');
+
+        // مخفی کردن همه‌ی بخش‌های اضافی
+        notKeyedContainer.style.display = 'none';
+        deliveryDateContainer.style.display = 'none';
+        rentalFieldsContainer.style.display = 'none';
+
+        // نمایش بر اساس نوع معامله
+        if (transactionType === 'فروش') {
+            notKeyedContainer.style.display = 'block';
+            yearRow.style.gridTemplateColumns = '1fr 1fr';
+        } else if (transactionType === 'پیش فروش') {
+            deliveryDateContainer.style.display = 'block';
+            yearRow.style.gridTemplateColumns = '1fr 1fr';
+        } else if (transactionType === 'اجاره') {
+            rentalFieldsContainer.style.display = 'block';
+            yearRow.style.gridTemplateColumns = '1fr'; // سال ساخت تنها در یک ستون
+        }
+    }
+
+    function toggleVacancy() {
+        const chk = document.getElementById('regIsVacant');
+        const dateInput = document.getElementById('regVacancyDate');
+        
+        if (chk.checked) {
+            dateInput.disabled = true;
+            dateInput.value = '';
+            dateInput.required = false;
+        } else {
+            dateInput.disabled = false;
+            dateInput.required = false;
+        }
+    }
+
+    // ===================== مدیریت نمایش گزینه‌های انتشار بر اساس وجود عکس =====================
+    function togglePublishOptions() {
+        const container = document.getElementById('publishOptionsContainer');
+        if (uploadedImages.length > 0) {
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
+    }
+
+    // ==============================================
+    // آپلود تصاویر با AJAX (مطمئن‌ترین روش)
+    // ==============================================
+    function handleImageUpload(input) {
+        const files = Array.from(input.files);
+        const maxSize = 5 * 1024 * 1024;
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+        if (files.length === 0) {
+            alert('لطفاً حداقل یک تصویر انتخاب کنید.');
+            return;
+        }
+
+        // بررسی فایل‌ها
+        const validFiles = [];
+        files.forEach(file => {
+            if (!allowedTypes.includes(file.type)) {
+                alert(`فرمت ${file.type} مجاز نیست. فقط JPG, PNG, WEBP مجاز است.`);
+                return;
+            }
+            if (file.size > maxSize) {
+                alert(`حجم فایل ${file.name} بیش از ۵ مگابایت است.`);
+                return;
+            }
+            validFiles.push(file);
+        });
+
+        if (validFiles.length === 0) return;
+
+        // نمایش پیش‌نمایش
+        validFiles.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const container = document.getElementById('imagePreviewContainer');
+                const div = document.createElement('div');
+                div.className = 'image-preview-item';
+                div.innerHTML = `
+                    <img src="${e.target.result}" alt="تصویر ${uploadedImages.length + 1}">
+                    <button class="remove-btn" onclick="removeImage(${uploadedImages.length})">✕</button>
+                `;
+                container.appendChild(div);
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // ارسال فایل‌ها با AJAX
+        const formData = new FormData();
+        validFiles.forEach(file => {
+            formData.append('images[]', file);
+        });
+        formData.append('action', 'upload_images');
+
+        const progressDiv = document.getElementById('uploadProgress');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        
+        progressDiv.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.innerText = 'در حال آپلود...';
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', window.location.href, true);
+        
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                progressBar.style.width = percent + '%';
+                progressText.innerText = 'آپلود: ' + percent + '%';
+            }
+        };
+        
+        xhr.onload = function() {
+            progressDiv.style.display = 'none';
+            if (xhr.status === 200) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        uploadedImages = uploadedImages.concat(response.images);
+                        document.getElementById('uploaded_images').value = uploadedImages.join(',');
+                        togglePublishOptions();
+                        console.log('✅ تصاویر آپلود شدند:', uploadedImages);
+                    } else {
+                        alert('خطا در آپلود تصاویر');
+                    }
+                } catch (e) {
+                    alert('خطا در پردازش پاسخ سرور');
+                }
+            } else {
+                alert('خطا در ارتباط با سرور');
+            }
+            input.value = '';
+        };
+        
+        xhr.onerror = function() {
+            progressDiv.style.display = 'none';
+            alert('خطا در آپلود تصاویر');
+            input.value = '';
+        };
+        
+        xhr.send(formData);
+    }
+
+    function removeImage(index) {
+        uploadedImages.splice(index, 1);
+        document.getElementById('uploaded_images').value = uploadedImages.join(',');
+        
+        // حذف از پیش‌نمایش
+        const container = document.getElementById('imagePreviewContainer');
+        const items = container.querySelectorAll('.image-preview-item');
+        if (items[index]) {
+            items[index].remove();
+        }
+        
+        togglePublishOptions();
+    }
+
+    // ===================== پیش‌نمایش نهایی =====================
+    function updatePreview() {
+        const previewContainer = document.getElementById('finalPreviewContainer');
+        previewContainer.style.display = 'block';
+
+        const gender = document.getElementById('hidden_gender').value || '-';
+        const lastName = document.getElementById('hidden_last_name').value || '-';
+        const phone = document.getElementById('hidden_phone').value || '-';
+        const transTypeLabel = transType === 'فروش' ? 'خرید و فروش' : transType === 'پیش فروش' ? 'پیش فروش' : 'اجاره';
+        const propertyType = 'آپارتمان';
+        const title = document.getElementById('regTitle').value || '-';
+        const location = document.getElementById('regLocation').value || '-';
+        const address = document.getElementById('regAddress').value || '-';
+        const description = document.getElementById('regFullDesc').value || '-';
+        
+        const publishPhotos = document.querySelector('input[name="publish_photos"]:checked');
+        const publishStatus = publishPhotos ? (publishPhotos.value === 'yes' ? '✅ منتشر شود' : '❌ منتشر نشود (فقط حضوری)') : '-';
+
+        let specsHtml = '';
+        document.querySelectorAll('#step2 .form-group').forEach(group => {
+            const label = group.querySelector('label')?.innerText || '';
+            let value = '';
+            const input = group.querySelector('input, select');
+            if (input) {
+                if (input.tagName === 'SELECT') {
+                    value = input.options[input.selectedIndex]?.innerText || '-';
+                } else {
+                    value = input.value || '-';
+                }
+            }
+            specsHtml += `<div class="preview-row"><span class="preview-label">${label}</span><span class="preview-value rtl">${value}</span></div>`;
+        });
+
+        // اضافه کردن کلید نخورده به پیش‌نمایش
+        const isNotKeyed = document.getElementById('regIsNotKeyed');
+        if (isNotKeyed && isNotKeyed.checked) {
+            specsHtml += `<div class="preview-row"><span class="preview-label">کلید نخورده</span><span class="preview-value rtl">بله</span></div>`;
+        }
+
+        // اضافه کردن تاریخ تحویل (پیش‌فروش)
+        const deliveryDate = document.getElementById('regDeliveryDate');
+        if (deliveryDate && deliveryDate.value) {
+            specsHtml += `<div class="preview-row"><span class="preview-label">تاریخ تحویل</span><span class="preview-value rtl">${deliveryDate.value}</span></div>`;
+        }
+
+        // اضافه کردن تاریخ تخلیه و واحد تخلیه است (اجاره)
+        const vacancyDate = document.getElementById('regVacancyDate');
+        const isVacant = document.getElementById('regIsVacant');
+        if (vacancyDate && vacancyDate.value) {
+            specsHtml += `<div class="preview-row"><span class="preview-label">تاریخ تخلیه</span><span class="preview-value rtl">${vacancyDate.value}</span></div>`;
+        }
+        if (isVacant && isVacant.checked) {
+            specsHtml += `<div class="preview-row"><span class="preview-label">واحد تخلیه است</span><span class="preview-value rtl">بله</span></div>`;
+        }
+
+        let amenitiesHtml = '';
+        document.querySelectorAll('#step3 input[type="checkbox"]:checked').forEach(cb => {
+            amenitiesHtml += `<span style="display:inline-block;background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);margin:2px;">${cb.value}</span> `;
+        });
+        if (!amenitiesHtml) amenitiesHtml = 'هیچکدام';
+
+        let priceHtml = '';
+        if (transType === 'فروش') {
+            const price = document.querySelector('input[name="price_sell"]').value || '-';
+            const condition = document.querySelector('input[name="price_condition"]:checked')?.value || 'negotiable';
+            const exchangeChk = document.getElementById('exchangeCheckbox');
+            const exchangeVal = exchangeChk && exchangeChk.checked ? document.querySelector('textarea[name="exchange_with"]').value : '-';
+            priceHtml = `<div class="preview-row"><span class="preview-label">قیمت</span><span class="preview-value">${price} تومان</span></div>`;
+            priceHtml += `<div class="preview-row"><span class="preview-label">وضعیت</span><span class="preview-value rtl">${condition === 'negotiable' ? 'قابل مذاکره' : 'مقطوع'}</span></div>`;
+            if (exchangeChk && exchangeChk.checked) {
+                priceHtml += `<div class="preview-row"><span class="preview-label">معاوضه با</span><span class="preview-value rtl">${exchangeVal}</span></div>`;
+            }
+        } else if (transType === 'اجاره') {
+            const deposit = document.querySelector('input[name="deposit"]').value || '-';
+            const rent = document.querySelector('input[name="rent_monthly"]').value || '-';
+            const fullRentChk = document.getElementById('fullRentCheckbox');
+            const fullRentVal = fullRentChk.checked ? document.querySelector('input[name="full_rent"]').value : '-';
+            priceHtml = `<div class="preview-row"><span class="preview-label">ودیعه</span><span class="preview-value">${deposit} تومان</span></div>`;
+            priceHtml += `<div class="preview-row"><span class="preview-label">اجاره ماهانه</span><span class="preview-value">${rent} تومان</span></div>`;
+            if (fullRentChk.checked) {
+                priceHtml += `<div class="preview-row"><span class="preview-label">رهن کامل</span><span class="preview-value">${fullRentVal} تومان</span></div>`;
+            }
+        } else if (transType === 'پیش فروش') {
+            const total = document.querySelector('input[name="total_price"]').value || '-';
+            const down = document.querySelector('input[name="down_payment"]').value || '-';
+            const terms = document.querySelector('textarea[name="payment_terms"]').value || '-';
+            priceHtml = `<div class="preview-row"><span class="preview-label">قیمت کل</span><span class="preview-value">${total} تومان</span></div>`;
+            priceHtml += `<div class="preview-row"><span class="preview-label">پیش‌پرداخت</span><span class="preview-value">${down} تومان</span></div>`;
+            priceHtml += `<div class="preview-row"><span class="preview-label">شرایط پرداخت</span><span class="preview-value rtl">${terms}</span></div>`;
+        }
+
+        // اضافه کردن ساعت بازدید به پیش‌نمایش
+        const visitHours = document.querySelector('textarea[name="visit_hours"]').value || '-';
+
+        document.getElementById('previewContent').innerHTML = `
+            <div class="preview-card-title" style="font-size:14px;margin-top:0;">اطلاعات تماس</div>
+            <div class="preview-row"><span class="preview-label">جنسیت</span><span class="preview-value rtl">${gender}</span></div>
+            <div class="preview-row"><span class="preview-label">نام خانوادگی</span><span class="preview-value rtl">${lastName}</span></div>
+            <div class="preview-row"><span class="preview-label">شماره تماس</span><span class="preview-value">${phone}</span></div>
+            
+            <div class="preview-card-title" style="font-size:14px;">نوع معامله و ملک</div>
+            <div class="preview-row"><span class="preview-label">نوع معامله</span><span class="preview-value rtl">${transTypeLabel}</span></div>
+            <div class="preview-row"><span class="preview-label">نوع ملک</span><span class="preview-value rtl">${propertyType}</span></div>
+
+            <div class="preview-card-title" style="font-size:14px;">اطلاعات پایه</div>
+            <div class="preview-row"><span class="preview-label">عنوان</span><span class="preview-value rtl">${title}</span></div>
+            <div class="preview-row"><span class="preview-label">محله</span><span class="preview-value rtl">${location}</span></div>
+            <div class="preview-row"><span class="preview-label">آدرس دقیق</span><span class="preview-value rtl">${address}</span></div>
+
+            <div class="preview-card-title" style="font-size:14px;">مشخصات ملک</div>
+            ${specsHtml}
+
+            <div class="preview-card-title" style="font-size:14px;">امکانات</div>
+            <div class="preview-row"><span class="preview-label">انتخاب شده</span><span class="preview-value rtl" style="font-weight:normal;">${amenitiesHtml}</span></div>
+
+            <div class="preview-card-title" style="font-size:14px;">قیمت</div>
+            ${priceHtml}
+
+            <div class="preview-card-title" style="font-size:14px;">تصاویر</div>
+            <div class="preview-row"><span class="preview-label">وضعیت انتشار</span><span class="preview-value rtl">${publishStatus}</span></div>
+            <div id="previewImages" class="image-preview-grid"></div>
+
+            <div class="preview-card-title" style="font-size:14px;">توضیحات و زمان بازدید</div>
+            <div class="preview-row"><span class="preview-label">توضیحات</span><span class="preview-value rtl" style="font-weight:normal;white-space:pre-wrap;">${description}</span></div>
+            <div class="preview-row"><span class="preview-label">زمان‌های بازدید</span><span class="preview-value rtl" style="font-weight:normal;">${visitHours}</span></div>
+        `;
+        renderPreviewImages();
+    }
+
+    function renderPreviewImages() {
+        const container = document.getElementById('previewImages');
+        container.innerHTML = '';
+        uploadedImages.forEach((imgPath, index) => {
+            const div = document.createElement('div');
+            div.className = 'image-preview-item';
+            div.innerHTML = `<img src="${imgPath}" alt="تصویر ${index+1}">`;
+            container.appendChild(div);
+        });
+    }
+
+    // ===================== دکمه‌های گام ۵ =====================
+    function editPreview() {
+        document.getElementById('finalPreviewContainer').style.display = 'none';
+        document.getElementById('prevBtn').style.display = (currentStep === 1) ? 'none' : 'flex';
+        document.getElementById('nextBtn').style.display = 'flex';
+        document.getElementById('nextBtn').innerText = 'مرحله بعد';
+        changeStep(-4);
+    }
+
+    // ===================== تغییر گام‌ها =====================
+    function changeStep(direction) {
+        if (currentStep === totalSteps && direction === 1) {
+            document.getElementById('prevBtn').style.display = 'none';
+            document.getElementById('nextBtn').style.display = 'none';
+            updatePreview();
+            return;
+        }
+
+        document.getElementById(`step${currentStep}`).classList.remove('active');
+        currentStep += direction;
+        if(currentStep < 1) currentStep = 1;
+        if(currentStep > totalSteps) currentStep = totalSteps;
+        document.getElementById(`step${currentStep}`).classList.add('active');
+        document.getElementById('stepText').innerText = `مرحله ${currentStep} از ${totalSteps}`;
+        for(let i=1; i<totalSteps; i++) {
+            let line = document.getElementById(`line${i}`);
+            if(i < currentStep) line.classList.add('active');
+            else line.classList.remove('active');
+        }
+
+        document.getElementById('prevBtn').style.display = (currentStep === 1) ? 'none' : 'flex';
+        document.getElementById('nextBtn').innerText = (currentStep === totalSteps) ? 'پیش‌نمایش و ثبت' : 'مرحله بعد';
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+
+    // ===================== تبدیل اعداد فارسی به انگلیسی =====================
+    function toEnglishDigits(str) {
+        const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+        const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+        for (let i = 0; i < 10; i++) {
+            str = str.replaceAll(persianDigits[i], i);
+            str = str.replaceAll(arabicDigits[i], i);
+        }
+        return str;
+    }
+
+    function formatPrice(input) {
+        let val = toEnglishDigits(input.value);
+        val = val.replace(/,/g, '').replace(/[^0-9]/g, '');
+        if(val === '') { input.value = ''; return; }
+        let num = parseInt(val, 10);
+        input.value = num.toLocaleString('en-US');
+    }
+
+    function normalizeNumeric(input) {
+        let val = toEnglishDigits(input.value);
+        val = val.replace(/[^0-9.]/g, '');
+        if(val === '') { input.value = ''; return; }
+        if ((val.match(/\./g) || []).length > 1) {
+            val = val.replace(/\.(?=.*\.)/g, '');
+        }
+        input.value = val;
+    }
+
+    document.addEventListener('input', function(e) {
+        if (e.target.classList.contains('price-input')) {
+            formatPrice(e.target);
+        }
+        if (e.target.classList.contains('numeric-input')) {
+            normalizeNumeric(e.target);
+        }
+    });
+</script>
+<?php require_once 'footer.php'; ?>
