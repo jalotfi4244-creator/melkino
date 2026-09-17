@@ -155,10 +155,13 @@ if (empty($result['ok'])) {
 $messageId = $result['result']['message_id'] ?? null;
 
 try {
+    // شناسهٔ همان کانالی که پیام واقعاً به آن رفته ثبت می‌شود (نه ثابتِ
+    // CHANNEL_ID در config.php) تا اگر ادمین کانال را از پنل عوض کرده باشد،
+    // حذف/ویرایشِ بعدیِ پیام سرِ جای درست انجام شود.
     $update = $pdo->prepare(
         "UPDATE ads SET telegram_message_id = ?, telegram_channel_id = ?, telegram_published_at = NOW() WHERE id = ?"
     );
-    $update->execute([$messageId, (string)CHANNEL_ID, $adId]);
+    $update->execute([$messageId, (string)$tgChannel, $adId]);
 } catch (Throwable $e) {
     // پیام با موفقیت ارسال شده؛ فقط ثبتش در دیتابیس ناموفق بود
 }
