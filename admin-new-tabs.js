@@ -834,11 +834,20 @@ window.testBaleChannelConnection = async function () {
                 return;
             }
 
-            box.innerHTML = rows.map(b => `
+            box.innerHTML = rows.map(b => {
+                let badges = '';
+                if (b.is_safety) badges += '<span style="font-size:10px;background:var(--warning-bg,#fef3c7);color:#92400e;border-radius:8px;padding:2px 8px;margin-inline-start:6px;">🛡️ نسخه ایمنی</span>';
+                if (b.meta) {
+                    if (b.meta.with_db) badges += '<span style="font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px 8px;margin-inline-start:6px;">🗄️ دیتابیس ✓ (' + (b.meta.tables || 0) + ' جدول)</span>';
+                    else badges += '<span style="font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px 8px;margin-inline-start:6px;">🗄️ بدون دیتابیس</span>';
+                    if (b.meta.with_files) badges += '<span style="font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px 8px;margin-inline-start:6px;">📁 ' + (b.meta.file_count || 0) + ' فایل</span>';
+                }
+                return `
                 <div style="border:1px solid var(--border);border-radius:14px;padding:13px;margin-bottom:10px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;">
                     <div>
                         <div style="font-size:13px;font-weight:700;color:var(--text-primary);" dir="ltr">${esc(b.name)}</div>
                         <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${esc(b.created_at)} · ${esc(b.size_human)}</div>
+                        ${badges ? '<div style="margin-top:6px;">' + badges + '</div>' : '' }
                     </div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap;">
                         <button type="button" class="btn-secondary" style="padding:5px 10px;font-size:11px;" data-backup-download="${esc(b.name)}">⬇️ دانلود</button>
@@ -846,7 +855,8 @@ window.testBaleChannelConnection = async function () {
                         <button type="button" class="btn-secondary" style="padding:5px 10px;font-size:11px;color:var(--danger);" data-backup-delete="${esc(b.name)}">🗑 حذف</button>
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         } catch (e) {
             box.innerHTML = '<div style="color:var(--danger);font-size:13px;">خطا در بارگذاری فهرست پشتیبان‌ها.</div>';
         }
@@ -854,15 +864,21 @@ window.testBaleChannelConnection = async function () {
 
     window.createBackup = async function () {
         const withDb = document.getElementById('backupWithDb');
+        const withFiles = document.getElementById('backupWithFiles');
         const includeDb = withDb ? (withDb.checked ? '1' : '0') : '1';
+        const includeFiles = withFiles ? (withFiles.checked ? '1' : '0') : '1';
 
+        if (includeDb === '0' && includeFiles === '0') {
+            alert('حداقل یکی از «فایل‌ها» یا «دیتابیس» باید انتخاب شود.');
+            return;
+        }
         if (!confirm('ساخت فایل پشتیبان ممکن است کمی طول بکشد. ادامه بدهیم؟')) return;
 
         const status = document.getElementById('backupsListContainer');
         if (status) status.innerHTML = '<div style="padding:20px;text-align:center;font-size:13px;">⏳ در حال ساخت پشتیبان...</div>';
 
         try {
-            const data = await getJson('admin-backup.php?action=create&with_db=' + includeDb);
+            const data = await getJson('admin-backup.php?action=create&with_db=' + includeDb + '&with_files=' + includeFiles);
             if (data.success) {
                 alert(data.message || 'پشتیبان ساخته شد.');
                 loadBackups();
@@ -896,19 +912,32 @@ window.testBaleChannelConnection = async function () {
         const rs = t.closest('[data-backup-restore]');
         if (rs) {
             const withDb = document.getElementById('restoreWithDb');
+            const withFiles = document.getElementById('restoreWithFiles');
             const restoreDb = withDb ? withDb.checked : false;
-            const warning = restoreDb
-                ? 'بازیابی فایل‌ها و دیتابیس انجام شود؟ اطلاعات فعلی دیتابیس جایگزین می‌شود.'
-                : 'فایل‌های پروژه از این پشتیبان بازیابی شوند؟';
+            const restoreFiles = withFiles ? withFiles.checked : true;
+            if (!restoreDb && !restoreFiles) {
+                alert('حداقل یکی از «فایل‌ها» یا «دیتابیس» باید انتخاب شود.');
+                return;
+            }
+            let warning;
+            if (restoreDb && restoreFiles) {
+                warning = 'بازیابی فایل‌ها و دیتابیس انجام شود؟\nاطلاعات فعلی دیتابیس با اطلاعات درون پشتیبان جایگزین می‌شود.\n(پیش از بازیابی یک نسخه‌ی ایمنی ساخته می‌شود)';
+            } else if (restoreDb) {
+                warning = 'فقط دیتابیس از این پشتیبان بازیابی شود؟\nاطلاعات فعلی دیتابیس جایگزین می‌شود.\n(پیش از بازیابی یک نسخه‌ی ایمنی ساخته می‌شود)';
+            } else {
+                warning = 'فایل‌های پروژه از این پشتیبان بازیابی شوند؟\n(پیش از بازیابی یک نسخه‌ی ایمنی ساخته می‌شود)';
+            }
             if (!confirm(warning)) return;
+            if (restoreDb && !confirm('مطمئنی؟ بازیابی دیتابیس قابل بازگشت نیست (جز با نسخه‌ی ایمنی).')) return;
 
             try {
                 const data = await postJson('admin-backup.php?action=restore', {
                     file: rs.getAttribute('data-backup-restore'),
-                    restore_db: restoreDb
+                    restore_db: restoreDb,
+                    restore_files: restoreFiles
                 });
                 alert(data.message || (data.success ? 'بازیابی انجام شد.' : 'بازیابی ناموفق بود.'));
-                if (data.success) setTimeout(() => location.reload(), 1000);
+                if (data.success) setTimeout(() => location.reload(), 1200);
             } catch (err) {
                 alert('خطا در ارتباط با سرور.');
             }

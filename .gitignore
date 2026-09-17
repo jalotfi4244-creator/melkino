@@ -9,6 +9,9 @@ config.secrets.php
 /uploads/
 /settings/
 
+# Backup archives (contain full database dumps) — never commit
+/backups/
+
 # ===== OS / editor junk =====
 .DS_Store
 Thumbs.db
