@@ -226,6 +226,12 @@ $imageUrl = function (array $ad): string {
     return ltrim($name, '/');
 };
 
+/** برش امن متن (بدون وابستگی قطعی به mbstring) */
+$cut = function ($text, int $len): string {
+    $text = (string)$text;
+    return function_exists('mb_substr') ? mb_substr($text, 0, $len, 'UTF-8') : substr($text, 0, $len);
+};
+
 $numFa = function ($v): string {
     $raw = str_replace(',', '', trim((string)$v));
     if ($raw === '' || !is_numeric($raw) || (float)$raw == 0.0) {
@@ -425,7 +431,7 @@ require_once __DIR__ . '/header.php';
               <th>معیار</th>
               <?php foreach ($scoreData['ads'] as $ad): ?>
                 <th>
-                  <?= htmlspecialchars(trim((string)($ad['title'] ?? '')) !== '' ? mb_substr((string)$ad['title'], 0, 22) : 'ملک ' . $ad['id'], ENT_QUOTES, 'UTF-8') ?>
+                  <?= htmlspecialchars(trim((string)($ad['title'] ?? '')) !== '' ? $cut($ad['title'], 22) : 'ملک ' . $ad['id'], ENT_QUOTES, 'UTF-8') ?>
                   <?php if ((string)$ad['id'] === $winnerId): ?> 🏆<?php endif; ?>
                 </th>
               <?php endforeach; ?>
@@ -460,7 +466,7 @@ require_once __DIR__ . '/header.php';
       <div class="cmp-highlights">
         <b>💰 قیمت:</b>
         <?php foreach ($scoreData['ads'] as $ad): ?>
-          <?= htmlspecialchars(trim((string)($ad['title'] ?? '')) !== '' ? mb_substr((string)$ad['title'], 0, 18) : (string)$ad['id'], ENT_QUOTES, 'UTF-8') ?>
+          <?= htmlspecialchars(trim((string)($ad['title'] ?? '')) !== '' ? $cut($ad['title'], 18) : (string)$ad['id'], ENT_QUOTES, 'UTF-8') ?>
           → <?= htmlspecialchars($priceText($ad), ENT_QUOTES, 'UTF-8') ?><br>
         <?php endforeach; ?>
         <?php if (!empty($scoreData['highlights'])): ?>
