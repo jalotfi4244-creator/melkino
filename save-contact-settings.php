@@ -13,7 +13,7 @@
 | ساختارِ ذخیره‌شده:
 |   {
 |     agencyName, address, phone, email, whatsapp, telegram, instagram,
-|     linkedin, mapUrl, workingHours, bale,
+|     linkedin, mapImage, workingHours, bale,
 |     customCards: [ {label, messenger, url, icon}, ... ۵ عدد ]
 |   }
 |--------------------------------------------------------------------------
@@ -171,6 +171,19 @@ function melkinoContactCleanIcon($value): string
     return $icon;
 }
 
+function melkinoContactCleanMapImage($value): string
+{
+    $img = trim((string)($value ?? ''));
+    if ($img === '') {
+        return '';
+    }
+    // فقط مسیرهای داخلیِ پوشه‌ی uploads/contact مجازند
+    if (!preg_match('#^uploads/contact/[A-Za-z0-9_\-]+\.(png|jpe?g|webp|gif)$#i', $img)) {
+        return '';
+    }
+    return $img;
+}
+
 $clean = [
     'agencyName'    => melkinoContactCleanText($body['agencyName'] ?? ''),
     'address'       => melkinoContactCleanText($body['address'] ?? ''),
@@ -182,11 +195,15 @@ $clean = [
     'linkedin'      => melkinoContactCleanUrl($body['linkedin'] ?? ''),
     'workingHours'  => melkinoContactCleanText($body['workingHours'] ?? '', 200),
 
-    /* موقعیت دفتر روی نقشه‌ی نشان */
+    /* موقعیت دفتر روی نقشه‌ی نشان (قدیمی؛ نگه داشته شده برای سازگاری) */
     'neshanKey'     => melkinoContactCleanText($body['neshanKey'] ?? '', 200),
     'officeLat'     => melkinoContactCleanCoord($body['officeLat'] ?? null, 90),
     'officeLng'     => melkinoContactCleanCoord($body['officeLng'] ?? null, 180),
     'officeZoom'    => melkinoContactCleanZoom($body['officeZoom'] ?? null),
+
+    /* تصویر نقشه دفتر (جایگزین نقشه زنده) */
+    'mapImage'      => melkinoContactCleanMapImage($body['mapImage'] ?? ''),
+
     'bale'          => melkinoContactCleanUrl($body['bale'] ?? ''),
     'customCards'   => [],
 ];

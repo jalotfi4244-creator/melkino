@@ -4066,31 +4066,6 @@ if (
                 </div>
 
 
-                <!-- نقشه -->
-
-                <div class="contact-admin-field full">
-
-                    <label for="adminContactNeshanKey">
-                        کلید API نقشه‌ی نشان
-                    </label>
-
-                    <input
-                        type="text"
-                        id="adminContactNeshanKey"
-                        placeholder="کلید دریافت‌شده از پنل توسعه‌دهندگان نشان"
-                        dir="ltr"
-                    >
-
-                    <div class="contact-admin-help">
-                        از
-                        platform.neshan.org
-                        ثبت‌نام رایگان کنید و یک کلید از نوع «نقشه وب» بسازید.
-                        برای امنیت بیشتر، دامنه‌ی سایت خود را در فیلد دامنه‌های مجاز
-                        همان کلید وارد کنید.
-                    </div>
-
-                </div>
-
             </div>
 
 
@@ -4129,7 +4104,7 @@ if (
 
 
             <!-- =====================================================
-                 انتخابِ موقعیت دفتر روی نقشه‌ی نشان
+                 تصویر نقشه دفتر (جایگزین نقشه زنده)
                  ===================================================== -->
 
             <div class="consultant-admin-card" style="border-style:solid;">
@@ -4139,85 +4114,71 @@ if (
                     <div>
 
                         <div class="consultant-admin-title">
-                            📍 موقعیت دفتر روی نقشه
+                            🗺️ تصویر نقشه دفتر
                         </div>
 
                         <div class="consultant-admin-help">
-                            نشانگر را روی نقشه بکشید (یا روی هر نقطه کلیک کنید) تا
-                            موقعیت دفتر انتخاب شود. برای جابه‌جاییِ بهتر می‌توانید
-                            ابتدا روی نقشه بزرگ‌نمایی کنید. این نقطه عیناً در صفحه
-                            «ارتباط با ما» نمایش داده می‌شود.
+                            از نقشه‌ی محل دفتر اسکرین‌شات بگیر و اینجا آپلود کن؛
+                            همین عکس در صفحه «ارتباط با ما» نمایش داده می‌شود و
+                            با کلیک روی آن، نسخه‌ی بزرگ باز می‌شود.
                         </div>
 
                     </div>
 
                 </div>
 
-                <div
-                    id="officeMapPicker"
-                    style="
-                        width:100%;
-                        height:340px;
-                        border-radius:12px;
-                        overflow:hidden;
-                        margin-top:6px;
-                        background:var(--bg-secondary);
-                    "
-                ></div>
+                <img
+                    id="adminMapImagePreview"
+                    src=""
+                    alt="پیش‌نمایش نقشه دفتر"
+                    style="display:none;width:100%;max-height:300px;object-fit:cover;border-radius:12px;border:1px solid var(--border);margin-top:6px;"
+                >
 
                 <div
                     style="
                         display:flex;
-                        gap:14px;
+                        gap:10px;
                         flex-wrap:wrap;
                         align-items:center;
                         margin-top:14px;
-                        font-size:12px;
                     "
                 >
 
-                    <div class="admin-field" style="min-width:150px">
-                        <label>عرض جغرافیایی (Lat)</label>
-                        <input
-                            id="adminOfficeLat"
-                            dir="ltr"
-                            placeholder="35.6997"
-                            oninput="onOfficeCoordChanged()"
-                        >
-                    </div>
+                    <input
+                        type="file"
+                        id="adminMapImageFile"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        style="font-size:12px;"
+                    >
 
-                    <div class="admin-field" style="min-width:150px">
-                        <label>طول جغرافیایی (Lng)</label>
-                        <input
-                            id="adminOfficeLng"
-                            dir="ltr"
-                            placeholder="51.3380"
-                            oninput="onOfficeCoordChanged()"
-                        >
-                    </div>
+                    <button
+                        type="button"
+                        class="btn-icon-sm primary"
+                        onclick="uploadMapImage()"
+                    >
+                        ⬆️ آپلود عکس نقشه
+                    </button>
 
-                    <div class="admin-field" style="min-width:120px">
-                        <label>بزرگ‌نمایی</label>
-                        <input
-                            id="adminOfficeZoom"
-                            type="number"
-                            min="3"
-                            max="19"
-                            dir="ltr"
-                            placeholder="15"
-                        >
-                    </div>
+                    <button
+                        type="button"
+                        class="btn-secondary"
+                        onclick="removeMapImage()"
+                    >
+                        🗑️ حذف عکس
+                    </button>
 
                     <span
-                        id="officeMapState"
-                        style="color:var(--text-secondary)"
+                        id="mapImageState"
+                        style="font-size:12px;color:var(--text-secondary);"
                     ></span>
 
                 </div>
 
+                <div class="consultant-admin-help" style="margin-top:10px;">
+                    یادت نره بعد از آپلود، دکمه «ذخیره» پایین صفحه را بزنی.
+                </div>
+
             </div>
-
-
 
             <!-- =====================================================
                  مدیریت حرفه‌ای مشاوران
@@ -4649,341 +4610,214 @@ const MELKINO_CONTACT_STORAGE_KEY =
 
 
 /* =========================================================
-   انتخابِ موقعیت دفتر روی نقشه‌ی نشان
+   هلپرهای فیلدهای اطلاعات تماس
+   (قبلاً این توابع تعریف نشده بودند و تب «ارتباط با ما»
+   با خطای ReferenceError می‌شکست؛ فرم کارت‌ها رندر نمی‌شد)
    ========================================================= */
 
-let neshanSdkPromiseAdmin = null;
-
-let officePickerMap = null;
-
-let officePickerMarker = null;
-
-let officePickerBusy = false;
-
-
-function loadNeshanSdkAdmin() {
-
-    if (neshanSdkPromiseAdmin) {
-        return neshanSdkPromiseAdmin;
-    }
-
-    neshanSdkPromiseAdmin =
-        new Promise(function (resolve, reject) {
-
-            const css =
-                document.createElement('link');
-
-            css.rel =
-                'stylesheet';
-
-            css.href =
-                'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.css';
-
-            document.head.appendChild(css);
-
-
-            const script =
-                document.createElement('script');
-
-            script.async =
-                true;
-
-            script.src =
-                'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.js';
-
-            script.onload =
-                function () {
-                    resolve();
-                };
-
-            script.onerror =
-                function () {
-                    reject(
-                        new Error(
-                            'Neshan SDK failed to load'
-                        )
-                    );
-                };
-
-            document.head.appendChild(script);
-        });
-
-    return neshanSdkPromiseAdmin;
-}
-
-
-function getOfficeCoordValue(id) {
+function getContactFieldValue(id) {
 
     const el =
         document.getElementById(id);
 
     if (!el) {
-        return null;
+        return '';
     }
 
-    const raw =
-        String(el.value).trim();
-
-    if (raw === '') {
-        return null;
-    }
-
-    const num =
-        Number(raw);
-
-    return isFinite(num)
-        ? num
-        : null;
+    return String(
+        el.value ?? ''
+    ).trim();
 }
 
 
-function getOfficeZoomValue() {
+function setContactFieldValue(id, value) {
 
     const el =
-        document.getElementById(
-            'adminOfficeZoom'
-        );
+        document.getElementById(id);
 
     if (!el) {
-        return 15;
+        return;
     }
 
-    const num =
-        parseInt(el.value, 10);
-
-    if (!isFinite(num)) {
-        return 15;
-    }
-
-    if (num < 3) {
-        return 3;
-    }
-
-    if (num > 19) {
-        return 19;
-    }
-
-    return num;
+    el.value =
+        value === null ||
+        value === undefined
+            ? ''
+            : String(value);
 }
 
 
-function setOfficeState(text) {
+function updateContactPreview() {
 
-    const el =
+    const pairs = [
+        ['previewAgencyName', 'adminContactAgencyName'],
+        ['previewPhone', 'adminContactPhone'],
+        ['previewTelegram', 'adminContactTelegram'],
+        ['previewInstagram', 'adminContactInstagram']
+    ];
+
+    pairs.forEach(function (pair) {
+
+        const previewEl =
+            document.getElementById(pair[0]);
+
+        if (!previewEl) {
+            return;
+        }
+
+        const value =
+            getContactFieldValue(pair[1]);
+
+        previewEl.textContent =
+            value !== ''
+                ? value
+                : '-';
+    });
+}
+
+
+/* =========================================================
+   تصویر نقشه دفتر (جایگزین نقشه زنده نشان)
+   ادمین از نقشه اسکرین‌شات می‌گیرد و اینجا آپلود می‌کند؛
+   همین عکس در صفحه «ارتباط با ما» نمایش داده می‌شود.
+   ========================================================= */
+
+let mapImagePath = '';
+
+
+function setMapImagePreview(path, quiet) {
+
+    mapImagePath =
+        String(path || '');
+
+    const img =
         document.getElementById(
-            'officeMapState'
+            'adminMapImagePreview'
         );
 
-    if (el) {
-        el.textContent =
-            text;
+    if (img) {
+
+        if (mapImagePath !== '') {
+            img.src = mapImagePath;
+            img.style.display = 'block';
+        } else {
+            img.removeAttribute('src');
+            img.style.display = 'none';
+        }
+    }
+
+    if (!quiet) {
+
+        const state =
+            document.getElementById(
+                'mapImageState'
+            );
+
+        if (state) {
+            state.textContent =
+                mapImagePath !== ''
+                    ? 'تصویر نقشه انتخاب شده است. با دکمه «ذخیره» پایین صفحه ذخیره‌اش کن.'
+                    : '';
+        }
     }
 }
 
 
-function initOfficeMapPicker() {
+async function uploadMapImage() {
 
-    const key =
-        getContactFieldValue(
-            'adminContactNeshanKey'
-        );
-
-    const host =
+    const input =
         document.getElementById(
-            'officeMapPicker'
+            'adminMapImageFile'
         );
 
-    if (!host) {
+    const file =
+        input &&
+        input.files &&
+        input.files[0];
+
+    if (!file) {
+        alert('اول یک عکس انتخاب کن.');
         return;
     }
 
-
-    if (!key) {
-
-        setOfficeState(
-            'برای نمایشِ نقشه، ابتدا کلید API نشان را وارد و ذخیره کنید.'
+    const state =
+        document.getElementById(
+            'mapImageState'
         );
 
-        return;
+    if (state) {
+        state.textContent = 'در حال آپلود…';
     }
 
+    const formData =
+        new FormData();
 
-    if (officePickerBusy) {
-        return;
+    formData.append('map', file);
+
+    try {
+
+        const response =
+            await fetch(
+                'upload-contact-map.php',
+                {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }
+            );
+
+        const result =
+            await response.json();
+
+        if (result && result.success) {
+            setMapImagePreview(result.path);
+        } else if (state) {
+            state.textContent =
+                'آپلود ناموفق بود: ' +
+                (
+                    (result && result.message) ||
+                    'خطای ناشناخته'
+                );
+        }
+
+    } catch (error) {
+
+        console.error(
+            'upload map image error:',
+            error
+        );
+
+        if (state) {
+            state.textContent =
+                'خطا در ارتباط با سرور.';
+        }
     }
-
-    officePickerBusy =
-        true;
-
-    setOfficeState(
-        'در حال بارگذاری نقشه…'
-    );
-
-
-    let lat =
-        getOfficeCoordValue('adminOfficeLat');
-
-    let lng =
-        getOfficeCoordValue('adminOfficeLng');
-
-
-    /* مرکزِ پیش‌فرض در صورت نبودِ مختصات: شاهرود */
-
-    if (lat === null || lng === null) {
-
-        lat =
-            35.5729;
-
-        lng =
-            54.9570;
-    }
-
-
-    loadNeshanSdkAdmin()
-        .then(function () {
-
-            if (typeof L === 'undefined') {
-
-                setOfficeState(
-                    'کتابخانه‌ی نقشه بارگیری نشد.'
-                );
-
-                officePickerBusy =
-                    false;
-
-                return;
-            }
-
-
-            if (officePickerMap) {
-
-                officePickerMap.remove();
-
-                officePickerMap =
-                    null;
-            }
-
-
-            officePickerMap =
-                new L.Map(
-                    'officeMapPicker',
-                    {
-                        key: key,
-                        maptype: 'dreamy',
-                        center: [lat, lng],
-                        zoom: getOfficeZoomValue(),
-                        poi: true,
-                        traffic: false
-                    }
-                );
-
-
-            officePickerMarker =
-                L.marker(
-                    [lat, lng],
-                    { draggable: true }
-                ).addTo(officePickerMap);
-
-
-            function handleMove(pos) {
-
-                const latEl =
-                    document.getElementById(
-                        'adminOfficeLat'
-                    );
-
-                const lngEl =
-                    document.getElementById(
-                        'adminOfficeLng'
-                    );
-
-                if (latEl) {
-                    latEl.value =
-                        pos.lat.toFixed(6);
-                }
-
-                if (lngEl) {
-                    lngEl.value =
-                        pos.lng.toFixed(6);
-                }
-
-                setOfficeState(
-                    'موقعیت انتخاب شد — برای ثبت، دکمه‌ی ذخیره را بزنید.'
-                );
-            }
-
-
-            officePickerMarker.on(
-                'dragend',
-                function () {
-
-                    handleMove(
-                        officePickerMarker.getLatLng()
-                    );
-                }
-            );
-
-
-            officePickerMap.on(
-                'click',
-                function (event) {
-
-                    officePickerMarker.setLatLng(
-                        event.latlng
-                    );
-
-                    handleMove(
-                        event.latlng
-                    );
-                }
-            );
-
-
-            setOfficeState(
-                'نشانگر را بکشید یا روی نقطه‌ی مورد نظر کلیک کنید.'
-            );
-
-            officePickerBusy =
-                false;
-        })
-        .catch(function () {
-
-            setOfficeState(
-                'بارگیری نقشه ناموفق بود؛ کلید API و دسترسی اینترنت را بررسی کنید.'
-            );
-
-            officePickerBusy =
-                false;
-        });
 }
 
 
-function onOfficeCoordChanged() {
+function removeMapImage() {
 
-    const lat =
-        getOfficeCoordValue('adminOfficeLat');
-
-    const lng =
-        getOfficeCoordValue('adminOfficeLng');
-
-
-    if (
-        officePickerMap &&
-        officePickerMarker &&
-        lat !== null &&
-        lng !== null
-    ) {
-
-        officePickerMarker.setLatLng(
-            [lat, lng]
+    const input =
+        document.getElementById(
+            'adminMapImageFile'
         );
 
-        officePickerMap.panTo(
-            [lat, lng]
+    if (input) {
+        input.value = '';
+    }
+
+    setMapImagePreview('');
+
+    const state =
+        document.getElementById(
+            'mapImageState'
         );
+
+    if (state) {
+        state.textContent =
+            'تصویر حذف شد. با دکمه «ذخیره» پایین صفحه ثبتش کن.';
     }
 }
-
 
 function getDefaultContactSettings() {
 
@@ -5016,17 +4850,8 @@ function getDefaultContactSettings() {
         workingHours:
             '',
 
-        neshanKey:
+        mapImage:
             '',
-
-        officeLat:
-            null,
-
-        officeLng:
-            null,
-
-        officeZoom:
-            15,
 
         bale:
             '',
@@ -5363,33 +5188,8 @@ async function loadContactSettings() {
         data.linkedin
     );
 
-    setContactFieldValue(
-        'adminContactNeshanKey',
-        data.neshanKey
-    );
 
-
-    setContactFieldValue(
-        'adminOfficeLat',
-        (data.officeLat === null || data.officeLat === undefined)
-            ? ''
-            : String(data.officeLat)
-    );
-
-    setContactFieldValue(
-        'adminOfficeLng',
-        (data.officeLng === null || data.officeLng === undefined)
-            ? ''
-            : String(data.officeLng)
-    );
-
-    setContactFieldValue(
-        'adminOfficeZoom',
-        String(data.officeZoom || 15)
-    );
-
-
-    initOfficeMapPicker();
+    setMapImagePreview(data.mapImage, true);
 
 
     setContactFieldValue(
@@ -5501,19 +5301,8 @@ async function saveContactSettings() {
                 'adminContactLinkedin'
             ),
 
-        neshanKey:
-            getContactFieldValue(
-                'adminContactNeshanKey'
-            ),
-
-        officeLat:
-            getOfficeCoordValue('adminOfficeLat'),
-
-        officeLng:
-            getOfficeCoordValue('adminOfficeLng'),
-
-        officeZoom:
-            getOfficeZoomValue(),
+        mapImage:
+            mapImagePath,
 
         workingHours:
             getContactFieldValue(
@@ -5732,8 +5521,7 @@ function bindContactLivePreview() {
         'adminContactTelegram',
         'adminContactInstagram',
         'adminContactBale',
-        'adminContactLinkedin',
-        'adminContactNeshanKey'
+        'adminContactLinkedin'
 
     ];
 
