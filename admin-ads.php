@@ -34,6 +34,36 @@
         </div>
 
 
+        <div class="stats-grid" style="padding:0 16px;">
+
+            <div class="stat-card">
+                <div class="number" id="adsStatTotal"><?= (int)($adsTotals['total'] ?? 0) ?></div>
+                <div class="label">کل آگهی‌ها</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="number" id="adsStatPending"><?= (int)($adsTotals['pending'] ?? 0) ?></div>
+                <div class="label">در انتظار تایید</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="number" id="adsStatPublished"><?= (int)($adsTotals['published'] ?? 0) ?></div>
+                <div class="label">منتشر شده</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="number" id="adsStatVip"><?= (int)($adsTotals['vip'] ?? 0) ?></div>
+                <div class="label">فایل‌های VIP</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="number" id="adsStatPublishedVip"><?= (int)($adsTotals['published_vip'] ?? 0) ?></div>
+                <div class="label">VIP منتشرشده</div>
+            </div>
+
+        </div>
+
+
         <div class="ads-toolbar">
 
             <input

@@ -762,7 +762,7 @@ if ($isMockMode) {
 
     try {
 
-        // آمارِ کلی از خودِ دیتابیس گرفته می‌شود تا اعدادِ داشبورد حتی
+        // آمارِ کلی از خودِ دیتابیس گرفته می‌شود تا اعدادِ نوار آمار تب آگهی‌ها حتی
         // وقتی همه‌ی آگهی‌ها لود نشده‌اند، درست و کامل بمانند.
         $adsTotalCount = 0;
         $adsTotals = ['total' => 0, 'pending' => 0, 'published' => 0, 'vip' => 0, 'published_vip' => 0];
@@ -991,8 +991,26 @@ $requestsData = [];
 if (!$isMockMode) {
     try {
         $requestsTotalCount = 0;
+        $requestsTotals = ['total' => 0, 'new_count' => 0, 'tracking_count' => 0, 'matched' => 0, 'matches' => 0];
         try {
             $requestsTotalCount = (int)$pdo->query("SELECT COUNT(*) FROM property_requests")->fetchColumn();
+            $requestsTotals['total'] = $requestsTotalCount;
+            try {
+                $reqRow = $pdo->query(
+                    "SELECT
+                        COALESCE(SUM(status IS NULL OR status = '' OR status = 'new'), 0) AS c_new,
+                        COALESCE(SUM(status = 'tracking'), 0) AS c_tracking
+                     FROM property_requests"
+                )->fetch(PDO::FETCH_ASSOC);
+                if (is_array($reqRow)) {
+                    $requestsTotals['new_count'] = (int)($reqRow['c_new'] ?? 0);
+                    $requestsTotals['tracking_count'] = (int)($reqRow['c_tracking'] ?? 0);
+                }
+            } catch (Throwable $e2) { /* ستون وضعیت ممکن است وجود نداشته باشد */ }
+            try {
+                $requestsTotals['matched'] = (int)$pdo->query("SELECT COUNT(DISTINCT request_id) FROM request_matches")->fetchColumn();
+                $requestsTotals['matches'] = (int)$pdo->query("SELECT COUNT(*) FROM request_matches")->fetchColumn();
+            } catch (Throwable $e3) { /* جدول تطبیق ممکن است هنوز ساخته نشده باشد */ }
         } catch (Throwable $e) {
             $requestsTotalCount = 0;
         }
@@ -3100,7 +3118,6 @@ if (
 .admin-body .card-title{font-size:17px!important;font-weight:950!important}
 
 /* hide old compact dashboard strip — the new dashboard replaces it */
-#tab-dashboard > .admin-card:first-child{display:none!important}
 .admin-hero{margin:0!important;padding:24px!important;border-radius:24px!important;background:linear-gradient(135deg,rgba(6,78,78,.97),rgba(11,93,91,.90))!important;border:1px solid rgba(212,175,55,.20)!important;box-shadow:0 16px 38px rgba(6,78,78,.15)!important}
 .admin-hero-title{font-size:27px!important;font-weight:950!important;color:#fff!important}
 .admin-hero-kicker{color:#f4d978!important;font-weight:900!important;letter-spacing:1.4px!important;font-size:10px!important}
@@ -3244,9 +3261,9 @@ if (
 
     <button
         class="tab-btn active"
-        onclick="switchTab('dashboard')"
+        onclick="switchTab('global')"
     >
-        📊 داشبورد
+        🧩 عمومی
     </button>
 
     <button
@@ -3275,13 +3292,6 @@ if (
         onclick="switchTab('onboarding')"
     >
         🚀 صفحات هدایت
-    </button>
-
-    <button
-        class="tab-btn"
-        onclick="switchTab('global')"
-    >
-        🧩 عمومی
     </button>
 
     <button
@@ -3482,121 +3492,6 @@ if (
 </div>
 
 
-<!-- =========================================================
-     DASHBOARD
-     ========================================================= -->
-
-<div
-    class="tab-content active"
-    id="tab-dashboard"
->
-
-    <div class="admin-card">
-
-        <div class="card-header">
-
-            <span class="card-title">
-                خلاصه وضعیت سیستم
-            </span>
-
-        </div>
-
-
-        <div
-            class="stats-grid"
-            id="dashboardStats"
-        >
-
-            <div class="stat-card">
-
-                <div
-                    class="number"
-                    id="dashTotalAds"
-                >
-                    <?= count($adsData) ?>
-                </div>
-
-                <div class="label">
-                    کل آگهی‌ها
-                </div>
-
-            </div>
-
-
-            <div class="stat-card">
-
-                <div
-                    class="number"
-                    id="dashPendingAds"
-                >
-                    <?= count(array_filter($adsData, fn($a) => ($a['status'] ?? '') === 'pending')) ?>
-                </div>
-
-                <div class="label">
-                    در انتظار تایید
-                </div>
-
-            </div>
-
-
-            <div class="stat-card">
-
-                <div
-                    class="number"
-                    id="dashPublishedAds"
-                >
-                    <?= count(array_filter($adsData, fn($a) => ($a['status'] ?? '') === 'published')) ?>
-                </div>
-
-                <div class="label">
-                    منتشر شده
-                </div>
-
-            </div>
-
-
-            <div class="stat-card">
-
-                <div
-                    class="number"
-                    id="dashTotalRequests"
-                >
-                    <?= count($requestsData) ?>
-                </div>
-
-                <div class="label">
-                    کل درخواست‌ها
-                </div>
-
-            </div>
-
-        </div>
-
-    </div>
-
-    <div class="admin-hero">
-        <div class="admin-hero-copy">
-            <div class="admin-hero-kicker">MELKINO CONTROL CENTER</div>
-            <div class="admin-hero-title">مرکز کنترل ملکینو</div>
-            <div class="admin-hero-sub">مدیریت آگهی‌ها، درخواست‌ها، کاربران، مشاوران، امنیت و هویت بصری در یک پنل واحد.</div>
-        </div>
-        <div class="admin-hero-badge">پنل مدیریت حرفه‌ای</div>
-    </div>
-
-    <div class="admin-stat-grid">
-        <div class="admin-stat-card accent"><div class="admin-stat-icon">⭐</div><div class="admin-stat-number" id="dashVipAds">0</div><div class="admin-stat-label">فایل‌های VIP</div><div class="admin-stat-note">آگهی‌های ویژه</div></div>
-        <div class="admin-stat-card accent"><div class="admin-stat-icon">🎯</div><div class="admin-stat-number" id="dashMatchedRequests">0</div><div class="admin-stat-label">درخواست دارای تطبیق</div><div class="admin-stat-note">درخواست‌هایی که فایل نزدیک دارند</div></div>
-        <div class="admin-stat-card accent"><div class="admin-stat-icon">🧩</div><div class="admin-stat-number" id="dashMatchCount">0</div><div class="admin-stat-label">کل تطبیق‌ها</div><div class="admin-stat-note">مجموع فایل‌های پیشنهادی</div></div>
-        <div class="admin-stat-card accent"><div class="admin-stat-icon">👥</div><div class="admin-stat-number" id="dashUsers">0</div><div class="admin-stat-label">کاربران ثبت‌شده</div><div class="admin-stat-note">Telegram IDهای ثبت‌شده</div></div>
-        <div class="admin-stat-card warning"><div class="admin-stat-icon">👁️</div><div class="admin-stat-number" id="dashVisits24h">0</div><div class="admin-stat-label">ورود ۲۴ ساعت اخیر</div><div class="admin-stat-note">بر اساس tracker فعال</div></div>
-        <div class="admin-stat-card"><div class="admin-stat-icon">📈</div><div class="admin-stat-number" id="dashPublishedVip">0</div><div class="admin-stat-label">VIP منتشرشده</div><div class="admin-stat-note">فایل VIP فعال</div></div>
-        <div class="admin-stat-card"><div class="admin-stat-icon">📩</div><div class="admin-stat-number" id="dashNewRequests">0</div><div class="admin-stat-label">درخواست‌های اخیر</div><div class="admin-stat-note">۱۰ درخواست آخر</div></div>
-        <div class="admin-stat-card danger"><div class="admin-stat-icon">⏳</div><div class="admin-stat-number" id="dashPendingReview">0</div><div class="admin-stat-label">در انتظار بررسی</div><div class="admin-stat-note">آگهی + درخواست</div></div>
-        <div class="admin-stat-card danger" style="cursor:pointer;" onclick="switchTab('support')"><div class="admin-stat-icon">🎧</div><div class="admin-stat-number" id="dashSupportOpen">0</div><div class="admin-stat-label">تیکت پشتیبانی باز</div><div class="admin-stat-note" id="dashSupportTotalNote">در انتظار پاسخ</div></div>
-    </div>
-
-</div>
-
 
 <?php require __DIR__ . '/admin-ads.php'; ?>
 <?php require __DIR__ . '/admin-requests.php'; ?>
@@ -3616,6 +3511,20 @@ if (
             <span class="card-title">
                 مدیریت کاربران
             </span>
+
+        </div>
+
+        <div class="stats-grid" style="padding:0 16px;">
+
+            <div class="stat-card">
+                <div class="number" id="usersStatTotal">…</div>
+                <div class="label">کاربران ثبت‌شده</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="number" id="usersStatVisits">…</div>
+                <div class="label">ورود ۲۴ ساعت اخیر</div>
+            </div>
 
         </div>
 
@@ -3709,7 +3618,7 @@ if (
      ========================================================= -->
 
 <div
-    class="tab-content"
+    class="tab-content active"
     id="tab-global"
 >
 
@@ -4461,6 +4370,20 @@ if (
             <span id="supportTicketCount" class="admin-section-help"></span>
         </div>
 
+        <div class="stats-grid" style="padding:0 16px;">
+
+            <div class="stat-card">
+                <div class="number" id="supportStatOpen">…</div>
+                <div class="label">تیکت باز</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="number" id="supportStatTotal">…</div>
+                <div class="label">کل تیکت‌ها</div>
+            </div>
+
+        </div>
+
         <div style="display:flex; gap:8px; flex-wrap:wrap; padding:0 16px 12px;">
             <button type="button" class="btn-secondary support-filter-btn active" data-status="all" onclick="filterSupportTickets('all', this)">همه</button>
             <button type="button" class="btn-secondary support-filter-btn" data-status="open" onclick="filterSupportTickets('open', this)">در انتظار بررسی</button>
@@ -4590,7 +4513,11 @@ window.MELKINO_ADS_META = {
 window.MELKINO_AD_TOTALS = <?= json_encode($adsTotals, JSON_UNESCAPED_UNICODE) ?>;
 window.MELKINO_REQUESTS_META = {
     loaded: <?= count($requestsData) ?>,
-    total:  <?= (int)($requestsTotalCount ?? count($requestsData)) ?>
+    total:  <?= (int)($requestsTotalCount ?? count($requestsData)) ?>,
+    new_count: <?= (int)($requestsTotals['new_count'] ?? 0) ?>,
+    tracking_count: <?= (int)($requestsTotals['tracking_count'] ?? 0) ?>,
+    matched: <?= (int)($requestsTotals['matched'] ?? 0) ?>,
+    matches: <?= (int)($requestsTotals['matches'] ?? 0) ?>
 };
 
 // =========================================================
@@ -6355,11 +6282,6 @@ function switchTab(tabId) {
     }
 
 
-    if (tabId === 'dashboard') {
-        renderDashboard();
-    }
-
-
     if (tabId === 'contact') {
         loadContactSettings();
         bindContactLivePreview();
@@ -6384,6 +6306,11 @@ function switchTab(tabId) {
     if (tabId === 'support') {
         loadSupportTickets();
     }
+
+    /* نوارهای آمار بالای تب‌ها همیشه به‌روز می‌مانند */
+    try {
+        if (typeof renderDashboard === 'function') renderDashboard();
+    } catch (e) {}
 }
 
 
@@ -6415,6 +6342,11 @@ function loadSupportTickets() {
             supportTicketsData = Array.isArray(data.tickets) ? data.tickets : [];
             const countEl = document.getElementById('supportTicketCount');
             if (countEl) countEl.innerText = supportTicketsData.length + ' تیکت';
+            const openTickets = supportTicketsData.filter(t => t.status === 'open' || t.status === 'answered').length;
+            const openEl = document.getElementById('supportStatOpen');
+            const totalEl = document.getElementById('supportStatTotal');
+            if (openEl) openEl.innerText = openTickets;
+            if (totalEl) totalEl.innerText = supportTicketsData.length;
             renderSupportTickets();
         })
         .catch(() => {
@@ -6536,42 +6468,58 @@ function setSupportTicketStatus(action) {
 }
 
 
+/* =========================================================
+   آمار بالای هر تب
+   =========================================================
+   تب «داشبورد» حذف شده و آمار هر بخش بالای همان تب نمایش داده
+   می‌شود. این تابع (که از جاهای مختلف مثل بارگذاری مرحله‌ای آگهی‌ها
+   و تغییر وضعیت آگهی صدا زده می‌شود) همه‌ی نوارهای آمار را به‌روز
+   می‌کند؛ هر کدام که در صفحه نباشد نادیده گرفته می‌شود.
+   ========================================================= */
 function renderDashboard() {
-    const T=window.MELKINO_AD_TOTALS||null;
-    const total=T?T.total:adsData.length;
-    const pending=T?T.pending:adsData.filter(a=>a.status==='pending').length;
-    const published=T?T.published:adsData.filter(a=>a.status==='published').length;
-    const vip=T?T.vip:adsData.filter(a=>a.is_vip===true||a.is_vip==='1').length;
-    const matchedRequests=requestsData.filter(r=>Array.isArray(r.matches)&&r.matches.length>0).length;
-    const matchCount=requestsData.reduce((sum,r)=>sum+(Array.isArray(r.matches)?r.matches.length:0),0);
-    const recentRequests=requestsData.slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))).slice(0,10).length;
-    const pendingReview=pending+requestsData.filter(r=>!r.status||r.status==='new'||r.status==='pending').length;
     const set=(id,val)=>{const e=document.getElementById(id);if(e)e.innerText=val;};
-    const RM=window.MELKINO_REQUESTS_META||null;
-    set('dashTotalAds',total);set('dashPendingAds',pending);set('dashPublishedAds',published);set('dashTotalRequests',RM?RM.total:requestsData.length);
-    set('dashVipAds',vip);set('dashMatchedRequests',matchedRequests);set('dashMatchCount',matchCount);set('dashNewRequests',recentRequests);set('dashPendingReview',pendingReview);
-    const usersEl=document.getElementById('dashUsers');
-    const visitsEl=document.getElementById('dashVisits24h');
-    if(usersEl)usersEl.innerText='…'; if(visitsEl)visitsEl.innerText='…';
-    Promise.all([
-        fetch('identity-sync.php?action=list',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-        fetch('page-visits.php?action=stats',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null)
-    ]).then(([u,v])=>{
-        if(usersEl)usersEl.innerText=Array.isArray(u?.users)?u.users.length:0;
-        if(visitsEl)visitsEl.innerText=Number(v?.last_24h||0);
-    });
-    set('dashPublishedVip',T?T.published_vip:adsData.filter(a=>(a.is_vip===true||a.is_vip==='1')&&a.status==='published').length);
 
-    fetch('support-api.php?action=admin_get_tickets',{cache:'no-store'})
-        .then(r=>r.json())
-        .then(data=>{
-            const tickets=Array.isArray(data?.tickets)?data.tickets:[];
-            const open=tickets.filter(t=>t.status==='open'||t.status==='answered').length;
-            set('dashSupportOpen',open);
-            const noteEl=document.getElementById('dashSupportTotalNote');
-            if(noteEl)noteEl.innerText='از مجموع '+tickets.length+' تیکت';
-        })
-        .catch(()=>{});
+    /* ---------- آمار تب آگهی‌ها ---------- */
+    const T=window.MELKINO_AD_TOTALS||null;
+    const ads=(typeof adsData!=='undefined'&&Array.isArray(adsData))?adsData:[];
+    set('adsStatTotal',T?T.total:ads.length);
+    set('adsStatPending',T?T.pending:ads.filter(a=>a.status==='pending').length);
+    set('adsStatPublished',T?T.published:ads.filter(a=>a.status==='published').length);
+    set('adsStatVip',T?T.vip:ads.filter(a=>a.is_vip===true||a.is_vip==='1').length);
+    set('adsStatPublishedVip',T?T.published_vip:ads.filter(a=>(a.is_vip===true||a.is_vip==='1')&&a.status==='published').length);
+
+    /* ---------- آمار تب درخواست‌ها ---------- */
+    const RM=window.MELKINO_REQUESTS_META||null;
+    const reqs=(typeof requestsData!=='undefined'&&Array.isArray(requestsData))?requestsData:[];
+    const reqStatus=r=>String(r.status||'new');
+    set('reqStatTotal',RM&&RM.total!=null?RM.total:reqs.length);
+    set('reqStatNew',RM&&RM.new_count!=null?RM.new_count:reqs.filter(r=>reqStatus(r)==='new').length);
+    set('reqStatTracking',RM&&RM.tracking_count!=null?RM.tracking_count:reqs.filter(r=>reqStatus(r)==='tracking').length);
+    set('reqStatMatched',RM&&RM.matched!=null?RM.matched:reqs.filter(r=>Array.isArray(r.matches)&&r.matches.length>0).length);
+    set('reqStatMatches',RM&&RM.matches!=null?RM.matches:reqs.reduce((sum,r)=>sum+(Array.isArray(r.matches)?r.matches.length:0),0));
+
+    /* ---------- آمار تب کاربران (با کش ۶۰ ثانیه‌ای) ---------- */
+    const usersEl=document.getElementById('usersStatTotal');
+    const visitsEl=document.getElementById('usersStatVisits');
+    const now=Date.now();
+    if((usersEl||visitsEl)&&(!window.__melkinoUsersStatsAt||now-window.__melkinoUsersStatsAt>60000)){
+        window.__melkinoUsersStatsAt=now;
+        if(usersEl)usersEl.innerText='…'; if(visitsEl)visitsEl.innerText='…';
+        Promise.all([
+            fetch('identity-sync.php?action=list',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+            fetch('page-visits.php?action=stats',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null)
+        ]).then(([u,v])=>{
+            if(usersEl)usersEl.innerText=Array.isArray(u?.users)?u.users.length:(Array.isArray(u)?u.length:0);
+            if(visitsEl)visitsEl.innerText=Number(v?.last_24h||0);
+        });
+    }
+
+    /* ---------- آمار تب پشتیبانی (اگر تیکت‌ها قبلاً لود شده‌اند) ---------- */
+    if(typeof supportTicketsData!=='undefined'&&Array.isArray(supportTicketsData)&&supportTicketsData.length){
+        const open=supportTicketsData.filter(t=>t.status==='open'||t.status==='answered').length;
+        set('supportStatOpen',open);
+        set('supportStatTotal',supportTicketsData.length);
+    }
 }
 
 // ==============================================
@@ -6789,10 +6737,10 @@ document.addEventListener(
         var __activeTab = document.querySelector('.tab-content.active');
         var __activeId  = __activeTab
             ? String(__activeTab.id || '').replace(/^tab-/, '')
-            : 'dashboard';
+            : 'global';
 
-        if (!__activeId) {
-            __activeId = 'dashboard';
+        if (!__activeId || __activeId === 'dashboard') {
+            __activeId = 'global';
         }
 
         switchTab(__activeId);
