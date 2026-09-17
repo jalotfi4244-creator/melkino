@@ -3310,6 +3310,13 @@ if (
 
     <button
         class="tab-btn"
+        onclick="switchTab('notifications')"
+    >
+        🔔 اعلان‌ها
+    </button>
+
+    <button
+        class="tab-btn"
         onclick="switchTab('password')"
     >
         🔑 تغییر رمز
@@ -4377,6 +4384,18 @@ if (
 
     </div>
 
+</div>
+
+
+<!-- =========================================================
+     NOTIFICATIONS
+     ========================================================= -->
+
+<div
+    class="tab-content"
+    id="tab-notifications"
+>
+<?php require __DIR__ . '/admin-notifications.php'; ?>
 </div>
 
 
@@ -6093,6 +6112,10 @@ function switchTab(tabId) {
 
     if (tabId === 'support') {
         loadSupportTickets();
+    }
+
+    if (tabId === 'notifications' && typeof loadAdminNotifications === 'function') {
+        loadAdminNotifications();
     }
 
     /* نوارهای آمار بالای تب‌ها همیشه به‌روز می‌مانند */

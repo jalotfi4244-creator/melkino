@@ -4,6 +4,7 @@
    - تبلیغات
    - تم و رنگ
    - پشتیبان‌گیری
+   - اعلان‌ها
    ========================================================= */
 
 (function () {
@@ -1060,6 +1061,161 @@ window.testBaleChannelConnection = async function () {
     });
 
     /* =====================================================
+       اعلان‌ها (ارسال عمومی + مدیریت)
+       ===================================================== */
+
+    const notifTypeFa = {
+        broadcast: '📢 عمومی',
+        welcome: '🎉 خوش‌آمد',
+        match: '🏠 تطبیق',
+        property_match: '🏠 تطبیق',
+        ad_submitted: '📝 ثبت آگهی',
+        ad_published: '✅ انتشار',
+        ad_rejected: '❌ رد آگهی',
+        ad_status: '🔄 وضعیت آگهی',
+        request_submitted: '📋 ثبت درخواست',
+        request_status: '🔄 وضعیت درخواست',
+        system: '🔔 سیستمی'
+    };
+
+    window.loadAdminNotifications = async function () {
+        loadNotifStats();
+        loadBroadcasts();
+        loadRecentNotifs();
+    };
+
+    async function loadNotifStats() {
+        const box = document.getElementById('notifStatsRow');
+        if (!box) return;
+        try {
+            const data = await getJson('admin-notifications.php?action=stats');
+            if (!data || !data.success) return;
+            const s = data.stats || {};
+            const card = (num, label) =>
+                '<div style="border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center;">' +
+                '<div style="font-size:20px;font-weight:800;color:var(--text-primary);">' + esc(s[num] ?? 0) + '</div>' +
+                '<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">' + label + '</div></div>';
+            box.innerHTML =
+                card('users', 'کاربران') +
+                card('total', 'کل اعلان‌ها') +
+                card('unread', 'خوانده‌نشده') +
+                card('broadcasts', 'اعلان عمومی');
+        } catch (e) { /* ignore */ }
+    }
+
+    async function loadBroadcasts() {
+        const box = document.getElementById('broadcastsListContainer');
+        if (!box) return;
+        box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary);font-size:13px;">در حال بارگذاری...</div>';
+        try {
+            const data = await getJson('admin-notifications.php?action=broadcast_list');
+            const rows = (data && data.broadcasts) || [];
+            if (!rows.length) {
+                box.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">هنوز اعلان عمومی ارسال نشده است.</div>';
+                return;
+            }
+            box.innerHTML = rows.map(b =>
+                '<div style="border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px;">' +
+                '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">' +
+                '<div style="min-width:0;flex:1;">' +
+                '<div style="font-size:13px;font-weight:800;color:var(--text-primary);">📢 ' + esc(b.title) + '</div>' +
+                '<div style="font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.9;">' + esc(b.message) + '</div>' +
+                (b.url ? '<div style="font-size:11px;margin-top:4px;" dir="ltr"><a href="' + esc(b.url) + '" target="_blank" rel="noopener">' + esc(b.url) + '</a></div>' : '') +
+                '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">' + esc(b.created_at) + ' · ارسال به ' + esc(b.sent_count) + ' کاربر · ' + esc(b.unread_count) + ' خوانده‌نشده</div>' +
+                '</div>' +
+                '<button type="button" class="btn-secondary" style="padding:5px 10px;font-size:11px;color:var(--danger);flex-shrink:0;" onclick="deleteBroadcast(' + Number(b.id) + ')">🗑 حذف</button>' +
+                '</div></div>'
+            ).join('');
+        } catch (e) {
+            box.innerHTML = '<div style="color:var(--danger);font-size:13px;">خطا در بارگذاری.</div>';
+        }
+    }
+
+    window.sendBroadcast = async function () {
+        const t = document.getElementById('broadcastTitle');
+        const m = document.getElementById('broadcastMessage');
+        const u = document.getElementById('broadcastUrl');
+        const title = t ? t.value.trim() : '';
+        const message = m ? m.value.trim() : '';
+        const url = u ? u.value.trim() : '';
+        if (!title || !message) {
+            setStatus('broadcastStatus', 'عنوان و متن اعلان الزامی است.', false);
+            return;
+        }
+        if (!confirm('این اعلان برای همه کاربران ارسال شود؟')) return;
+        setStatus('broadcastStatus', 'در حال ارسال...', null);
+        try {
+            const data = await postJson('admin-notifications.php?action=broadcast_send', { title, message, url });
+            setStatus('broadcastStatus', data.message || '', data.success);
+            if (data.success) {
+                if (t) t.value = '';
+                if (m) m.value = '';
+                if (u) u.value = '';
+                loadNotifStats();
+                loadBroadcasts();
+            }
+        } catch (e) {
+            setStatus('broadcastStatus', 'خطا در ارتباط با سرور.', false);
+        }
+    };
+
+    window.deleteBroadcast = async function (id) {
+        if (!confirm('این اعلان عمومی و همه نسخه‌هایش حذف شود؟')) return;
+        try {
+            const data = await postJson('admin-notifications.php?action=broadcast_delete', { id });
+            alert(data.message || (data.success ? 'حذف شد.' : 'خطا.'));
+            if (data.success) { loadNotifStats(); loadBroadcasts(); }
+        } catch (e) {
+            alert('خطا در ارتباط با سرور.');
+        }
+    };
+
+    async function loadRecentNotifs() {
+        const box = document.getElementById('recentNotifsContainer');
+        if (!box) return;
+        box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary);font-size:13px;">در حال بارگذاری...</div>';
+        try {
+            const data = await getJson('admin-notifications.php?action=recent_list');
+            const rows = (data && data.notifications) || [];
+            if (!rows.length) {
+                box.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">اعلانی وجود ندارد.</div>';
+                return;
+            }
+            box.innerHTML = rows.map(n => {
+                const who = n.user_name || n.user_phone
+                    ? esc(n.user_name || '') + (n.user_phone ? ' · ' + esc(n.user_phone) : '')
+                    : (n.telegram_id ? 'تلگرام: ' + esc(n.telegram_id) : 'کاربر #' + esc(n.user_id || '?'));
+                return '<div style="border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px;' +
+                    (Number(n.is_read) === 0 ? 'border-color:rgba(11,93,91,.35);' : '') + '">' +
+                    '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">' +
+                    '<div style="min-width:0;flex:1;">' +
+                    '<div style="font-size:12px;">' + (notifTypeFa[n.type] || esc(n.type)) +
+                    ' <span style="color:var(--text-muted);">· ' + who + '</span>' +
+                    (Number(n.is_read) === 0 ? ' <span style="color:var(--primary);font-weight:800;">· خوانده‌نشده</span>' : '') + '</div>' +
+                    '<div style="font-size:13px;font-weight:800;color:var(--text-primary);margin-top:4px;">' + esc(n.title) + '</div>' +
+                    '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;line-height:1.8;">' + esc((n.message || '').substring(0, 200)) + '</div>' +
+                    '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + esc(n.created_at) + '</div>' +
+                    '</div>' +
+                    '<button type="button" class="btn-secondary" style="padding:5px 10px;font-size:11px;color:var(--danger);flex-shrink:0;" onclick="deleteAdminNotif(' + Number(n.id) + ')">🗑</button>' +
+                    '</div></div>';
+            }).join('');
+        } catch (e) {
+            box.innerHTML = '<div style="color:var(--danger);font-size:13px;">خطا در بارگذاری.</div>';
+        }
+    }
+
+    window.deleteAdminNotif = async function (id) {
+        if (!confirm('این اعلان حذف شود؟')) return;
+        try {
+            const data = await postJson('admin-notifications.php?action=notif_delete', { id });
+            if (data.success) loadRecentNotifs();
+            else alert(data.message || 'خطا.');
+        } catch (e) {
+            alert('خطا در ارتباط با سرور.');
+        }
+    };
+
+    /* =====================================================
        بارگذاری اولیه
        ===================================================== */
     // بستن مودال تبلیغ با کلیک روی پس‌زمینه یا کلید Escape
@@ -1084,6 +1240,7 @@ window.testBaleChannelConnection = async function () {
             if (current && current.id === 'tab-bots') loadBotSettings();
             if (current && current.id === 'tab-promotions') loadPromotions();
             if (current && current.id === 'tab-backup') loadBackups();
+            if (current && current.id === 'tab-notifications') loadAdminNotifications();
         }
     });
 
