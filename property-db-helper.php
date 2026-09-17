@@ -259,6 +259,31 @@ if (!function_exists('savePropertyToDatabase')) {
             }
 
             $pdo->commit();
+
+            // اعلان «آگهی شما ثبت شد» برای ثبت‌کننده.
+            // بی‌صدا انجام می‌شود تا شکستش روند ثبت را خراب نکند.
+            try {
+                if (!function_exists('melkinoNotifyByPhone')) {
+                    require_once __DIR__ . '/db_helpers.php';
+                }
+                if (function_exists('melkinoNotifyByPhone')) {
+                    $ownerPhone = trim((string)($newAd['phone'] ?? ''));
+                    $adTitle = trim((string)($newAd['title'] ?? ''));
+                    if ($ownerPhone !== '') {
+                        melkinoNotifyByPhone(
+                            $ownerPhone,
+                            'ad_submitted',
+                            '📝 آگهی شما ثبت شد',
+                            'آگهی «' . ($adTitle !== '' ? $adTitle : $id) . '» با موفقیت ثبت شد و پس از بررسی کارشناسان منتشر می‌شود. کد پیگیری: ' . $id,
+                            'my-properties.php',
+                            $id
+                        );
+                    }
+                }
+            } catch (Throwable $e) {
+                // ignore — notification must never break registration
+            }
+
             return ['success' => true, 'id' => $id];
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();

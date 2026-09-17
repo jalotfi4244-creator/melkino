@@ -538,6 +538,18 @@ require_once __DIR__ . '/header.php';
     word-break: break-word;
 }
 
+.notif-chip {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    background: var(--bg-secondary, rgba(0,0,0,.04));
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2px 8px;
+    margin-bottom: 6px;
+}
+
 .notif-percent {
     flex: 0 0 auto;
 
@@ -772,7 +784,7 @@ body {
             </div>
 
             <div class="notifications-sub">
-                فایل‌های مطابق با درخواست‌های شما
+                رویدادهای ملک‌های شما، درخواست‌ها و اطلاعیه‌های عمومی ملکینو
             </div>
         </div>
 
@@ -844,6 +856,35 @@ body {
                 "'": '&#039;'
             }[char])
         );
+    };
+
+    /* =====================================================
+       زمان نسبی فارسی (۵ دقیقه پیش، دیروز، ...)
+       ===================================================== */
+
+    const faDigits = (value) => {
+        return String(value).replace(
+            /[0-9]/g,
+            (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]
+        );
+    };
+
+    const timeAgoFa = (dateStr) => {
+        if (!dateStr) return '';
+        const d = new Date(String(dateStr).replace(' ', 'T'));
+        if (Number.isNaN(d.getTime())) return String(dateStr);
+        const diff = Math.max(0, Date.now() - d.getTime());
+        const min = Math.floor(diff / 60000);
+        if (min < 1) return 'لحظاتی پیش';
+        if (min < 60) return faDigits(min) + ' دقیقه پیش';
+        const h = Math.floor(min / 60);
+        if (h < 24) return faDigits(h) + ' ساعت پیش';
+        const days = Math.floor(h / 24);
+        if (days === 1) return 'دیروز';
+        if (days < 7) return faDigits(days) + ' روز پیش';
+        if (days < 30) return faDigits(Math.floor(days / 7)) + ' هفته پیش';
+        if (days < 365) return faDigits(Math.floor(days / 30)) + ' ماه پیش';
+        return faDigits(Math.floor(days / 365)) + ' سال پیش';
     };
 
     /* =====================================================
@@ -958,8 +999,10 @@ body {
                         🔕
                         <br>
                         <br>
-                        هنوز فایل تطبیقی جدیدی برای درخواست‌های شما
-                        پیدا نشده است.
+                        هنوز اعلانی نداری.
+                        <br>
+                        رویدادهای ملک‌ها، درخواست‌ها و اطلاعیه‌های
+                        عمومی ملکینو اینجا نمایش داده می‌شن.
                     </div>
                 `;
 
@@ -973,9 +1016,24 @@ body {
                 const propertyUrl =
                     n.url ||
                     (
-                        'property-details.php?id=' +
-                        encodeURIComponent(n.ad_id || '')
+                        n.ad_id
+                            ? 'property-details.php?id=' + encodeURIComponent(n.ad_id || '')
+                            : 'home.php'
                     );
+
+                const hintByType = {
+                    welcome: 'برای مشاهده‌ی آگهی‌ها کلیک کنید',
+                    match: 'برای مشاهده آگهی کلیک کنید',
+                    property_match: 'برای مشاهده آگهی کلیک کنید',
+                    broadcast: 'اطلاعیه عمومی ملکینو',
+                    ad_submitted: 'برای پیگیری آگهی کلیک کنید',
+                    ad_published: 'برای مشاهده آگهی کلیک کنید',
+                    ad_rejected: 'برای پیگیری آگهی کلیک کنید',
+                    ad_status: 'برای پیگیری آگهی کلیک کنید',
+                    request_submitted: 'برای مشاهده درخواست‌ها کلیک کنید',
+                    request_status: 'برای مشاهده درخواست‌ها کلیک کنید',
+                };
+                const footerHint = hintByType[n.type] || 'برای مشاهده کلیک کنید';
 
                 const isUnread = Number(n.is_read) === 0;
 
@@ -995,9 +1053,34 @@ body {
                 const iconByType = {
                     welcome: '🎉',
                     match: '🏠',
+                    property_match: '🏠',
+                    broadcast: '📢',
+                    ad_submitted: '📝',
+                    ad_published: '✅',
+                    ad_rejected: '❌',
+                    ad_status: '🔄',
+                    request_submitted: '📋',
+                    request_status: '🔄',
                     system: '🔔',
                 };
-                const cardIcon = iconByType[n.type] || '🏠';
+                const cardIcon = iconByType[n.type] || '🔔';
+
+                const labelByType = {
+                    welcome: 'خوش‌آمد',
+                    match: 'فایل مناسب',
+                    property_match: 'فایل مناسب',
+                    broadcast: 'اطلاعیه عمومی',
+                    ad_submitted: 'ثبت آگهی',
+                    ad_published: 'انتشار آگهی',
+                    ad_rejected: 'رد آگهی',
+                    ad_status: 'وضعیت آگهی',
+                    request_submitted: 'ثبت درخواست',
+                    request_status: 'وضعیت درخواست',
+                    system: 'سیستمی',
+                };
+                const typeChip = labelByType[n.type]
+                    ? `<span class="notif-chip">${esc(labelByType[n.type])}</span>`
+                    : '';
 
                 const codeLine = (!isWelcome && n.request_id)
                     ? `
@@ -1021,6 +1104,8 @@ body {
 
                             <div class="notif-content">
 
+                                ${typeChip}
+
                                 <div class="notif-title">
                                     ${esc(
                                         n.title ||
@@ -1040,14 +1125,14 @@ body {
 
                         </div>
 
-                        <div class="notif-date">
-                            ${esc(n.created_at || '')}
+                        <div class="notif-date" title="${esc(n.created_at || '')}">
+                            ${timeAgoFa(n.created_at)}
                         </div>
 
                         <div class="notif-footer">
 
                             <span class="notif-footer-hint">
-                                ${isWelcome ? 'برای مشاهده‌ی آگهی‌ها کلیک کنید' : 'برای مشاهده آگهی کلیک کنید'}
+                                ${footerHint}
                             </span>
 
                             <button

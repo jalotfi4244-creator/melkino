@@ -772,3 +772,81 @@ function sendNotification($userId, $telegramId, $type, $title, $message, $url = 
         $matchPercent !== null ? (int)$matchPercent : null
     ]);
 }
+
+/**
+ * آیا اعلان‌های رویدادی فعال‌اند؟ (تنظیم عمومی enable_notifications)
+ */
+function melkinoEventsEnabled(): bool
+{
+    try {
+        global $pdo;
+        if (!function_exists('dbSettingGet') || !($pdo instanceof PDO)) {
+            return true;
+        }
+        return (bool)dbSettingGet($pdo, 'global', 'enable_notifications', true);
+    } catch (Throwable $e) {
+        return true;
+    }
+}
+
+/**
+ * ارسال اعلان به صاحب یک شماره موبایل.
+ *
+ * آگهی‌ها ستون user_id ندارند و مالک با شماره تماس پیدا می‌شود؛ این تابع
+ * شماره را نرمال می‌کند، کاربر متناظر را از جدول users پیدا می‌کند و اعلان
+ * را برایش ثبت می‌کند. اگر کاربری پیدا نشود یا اعلان‌ها خاموش باشند،
+ * بی‌صدا false برمی‌گردد (روند اصلی نباید به‌خاطر اعلان بشکند).
+ */
+function melkinoNotifyByPhone(string $phone, string $type, string $title, string $message, ?string $url = null, $adId = null, $requestId = null): bool
+{
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return false;
+    }
+    if (!melkinoEventsEnabled()) {
+        return false;
+    }
+
+    $normalized = function_exists('melkinoNormalizePhone')
+        ? melkinoNormalizePhone($phone)
+        : trim($phone);
+    if ($normalized === '') {
+        return false;
+    }
+
+    // شماره‌ها ممکن است با فرمت‌های مختلف ذخیره شده باشند
+    $candidates = [$normalized];
+    if (strpos($normalized, '0') === 0 && strlen($normalized) > 1) {
+        $candidates[] = substr($normalized, 1);
+        $candidates[] = '98' . substr($normalized, 1);
+    } elseif (strpos($normalized, '98') === 0) {
+        $candidates[] = '0' . substr($normalized, 2);
+    } else {
+        $candidates[] = '0' . $normalized;
+    }
+    $candidates = array_values(array_unique($candidates));
+
+    try {
+        $placeholders = implode(',', array_fill(0, count($candidates), '?'));
+        $stmt = $pdo->prepare(
+            "SELECT id, telegram_id FROM users WHERE phone IN ($placeholders) ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute($candidates);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return false;
+        }
+        return sendNotification(
+            (int)$row['id'],
+            !empty($row['telegram_id']) ? (string)$row['telegram_id'] : null,
+            $type,
+            $title,
+            $message,
+            $url,
+            $adId,
+            $requestId
+        );
+    } catch (Throwable $e) {
+        return false;
+    }
+}

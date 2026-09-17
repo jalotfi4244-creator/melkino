@@ -324,6 +324,36 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['request_actio
             exit;
         }
         $pdo->commit();
+        // اعلان تغییر وضعیت درخواست برای متقاضی — بی‌صدا
+        try {
+            if ($status !== 'new') {
+                if (!function_exists('sendNotification')) {
+                    require_once __DIR__ . '/db_helpers.php';
+                }
+                if (function_exists('sendNotification')) {
+                    $eventsOn = function_exists('melkinoEventsEnabled') ? melkinoEventsEnabled() : true;
+                    if ($eventsOn) {
+                        $owner = $pdo->prepare('SELECT id, user_id, telegram_id FROM property_requests WHERE tracking_code = ? LIMIT 1');
+                        $owner->execute([$trackingCode]);
+                        $orow = $owner->fetch(PDO::FETCH_ASSOC);
+                        if ($orow && (!empty($orow['user_id']) || !empty($orow['telegram_id']))) {
+                            sendNotification(
+                                !empty($orow['user_id']) ? (int)$orow['user_id'] : null,
+                                !empty($orow['telegram_id']) ? (string)$orow['telegram_id'] : null,
+                                'request_status',
+                                '🔄 وضعیت درخواست شما: ' . $allowedStatuses[$status],
+                                'وضعیت درخواست با کد پیگیری ' . $trackingCode . ' به «' . $allowedStatuses[$status] . '» تغییر کرد.',
+                                'requests.php',
+                                null,
+                                (int)$orow['id']
+                            );
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            // ignore
+        }
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         echo json_encode(['ok'=>false,'message'=>'ذخیره‌سازی انجام نشد.','error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);

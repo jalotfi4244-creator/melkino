@@ -367,6 +367,19 @@ function handleAdsPostRequests($pdo) {
         try {
             $payload = json_decode((string)file_get_contents('php://input'), true);
             if (!is_array($payload)) throw new RuntimeException('داده‌های آگهی معتبر نیستند.');
+            // وضعیت قبلی آگهی‌ها برای اعلان تغییر وضعیت به مالکان
+            $syncIds = [];
+            foreach ($payload as $pad) {
+                if (is_array($pad) && !empty($pad['id'])) $syncIds[] = (string)$pad['id'];
+            }
+            $syncIds = array_values(array_unique($syncIds));
+            $syncOld = [];
+            if ($syncIds) {
+                $syncPh = implode(',', array_fill(0, count($syncIds), '?'));
+                $syncSt = $pdo->prepare("SELECT id, status, phone, title FROM ads WHERE id IN ($syncPh)");
+                $syncSt->execute($syncIds);
+                foreach ($syncSt->fetchAll(PDO::FETCH_ASSOC) as $sr) $syncOld[(string)$sr['id']] = $sr;
+            }
             $pdo->beginTransaction();
             $update = $pdo->prepare("UPDATE ads SET title=?, transaction_type=?, property_type=?, status=?, location=?, address=?, gender=?, last_name=?, phone=?, price_sell=?, price_condition=?, deposit=?, rent_monthly=?, full_rent=?, full_rent_enabled=?, total_price=?, down_payment=?, payment_terms=?, price_hidden=?, description=?, publish_photos=?, is_vip=?, tags=?, property_details=?, custom_fields=?, updated_at=NOW(), published_at=CASE WHEN ?='published' THEN COALESCE(published_at,NOW()) ELSE NULL END, sold_at=CASE WHEN ?='sold' THEN COALESCE(sold_at,NOW()) ELSE NULL END WHERE id=?");
             $delAmen = $pdo->prepare("DELETE FROM ad_amenities WHERE ad_id=?");
@@ -438,6 +451,34 @@ function handleAdsPostRequests($pdo) {
                 }
             }
             $pdo->commit();
+            // اعلان تغییر وضعیت آگهی برای مالکان (منتشر/رد/فروخته/معلق شد) — بی‌صدا
+            try {
+                if (!function_exists('melkinoNotifyByPhone')) {
+                    require_once __DIR__ . '/db_helpers.php';
+                }
+                if (function_exists('melkinoNotifyByPhone')) {
+                    $statusNotif = [
+                        'published' => ['ad_published', '✅ آگهی شما منتشر شد', 'آگهی «%s» تأیید و در سایت منتشر شد.'],
+                        'rejected'  => ['ad_rejected', '❌ آگهی شما رد شد', 'آگهی «%s» رد شد. برای اصلاح و ثبت مجدد با پشتیبانی در تماس باشید.'],
+                        'sold'      => ['ad_status', '🤝 آگهی شما بسته شد', 'وضعیت آگهی «%s» به «فروخته / اجاره شده» تغییر کرد.'],
+                        'suspended' => ['ad_status', '⏸️ آگهی شما معلق شد', 'آگهی «%s» موقتاً معلق شد. برای اطلاعات بیشتر با پشتیبانی در تماس باشید.'],
+                    ];
+                    foreach ($payload as $pad) {
+                        if (!is_array($pad) || empty($pad['id'])) continue;
+                        $nid = (string)$pad['id'];
+                        $newStatus = (string)($pad['status'] ?? '');
+                        $oldStatus = (string)($syncOld[$nid]['status'] ?? '');
+                        if ($newStatus === '' || $newStatus === $oldStatus || !isset($statusNotif[$newStatus])) continue;
+                        $nPhone = trim((string)($pad['phone'] ?? $syncOld[$nid]['phone'] ?? ''));
+                        if ($nPhone === '') continue;
+                        [$nType, $nTitle, $nTpl] = $statusNotif[$newStatus];
+                        $nLabel = trim((string)($pad['title'] ?? $syncOld[$nid]['title'] ?? '')) ?: $nid;
+                        melkinoNotifyByPhone($nPhone, $nType, $nTitle, sprintf($nTpl, $nLabel), 'my-properties.php', $nid);
+                    }
+                }
+            } catch (Throwable $e) {
+                // ignore — notification must never break saving
+            }
             echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
