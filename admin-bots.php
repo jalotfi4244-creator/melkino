@@ -376,6 +376,14 @@ if ($melkinoBotAction !== '') {
         <input type="text" id="botTelegramChannel" class="admin-input" dir="ltr" placeholder="@melkino_shahrood">
         <div class="admin-field-help">آگهی‌های منتشرشده می‌توانند به این کانال ارسال شوند.</div>
 
+        <label class="admin-field-label">لینک عضویت در کانال (اختیاری)</label>
+        <input type="text" id="botTelegramChannelLink" class="admin-input" dir="ltr" placeholder="https://t.me/melkino_shahrood">
+        <div class="admin-field-help">
+            همان لینکی که کاربر با زدن دکمه‌ی «📢 کانال تلگرام ملکینو» در پروفایل باز می‌کند.
+            اگر شناسه‌ی کانال با @ شروع شود، خودکار ساخته می‌شود؛ برای کانال خصوصی (شناسه‌ی عددی)
+            این لینک را از تلگرام کپی و اینجا بگذار.
+        </div>
+
         <label class="admin-field-label">نام کاربری ربات (بدون @)</label>
         <input type="text" id="botTelegramUsername" class="admin-input" dir="ltr" placeholder="melkino_bot">
         <div class="admin-field-help">برای ساخت دکمه‌ی «ورود از طریق تلگرام» در مرورگر معمولی استفاده می‌شود.</div>

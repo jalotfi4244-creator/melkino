@@ -46,6 +46,7 @@
             const s = data.settings || {};
             const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = val || ''; };
             set('botTelegramChannel', s.telegram_channel);
+            set('botTelegramChannelLink', s.telegram_channel_link);
             set('botTelegramUsername', s.telegram_bot_username);
             set('botBaleChannel', s.bale_channel);
             set('botBaleUsername', s.bale_bot_username);
@@ -75,6 +76,7 @@
             const data = await postJson('admin-bots.php?action=save', {
                 telegram_token: val('botTelegramToken'),
                 telegram_channel: val('botTelegramChannel'),
+                telegram_channel_link: val('botTelegramChannelLink'),
                 telegram_bot_username: val('botTelegramUsername'),
                 bale_token: val('botBaleToken'),
                 bale_channel: val('botBaleChannel'),
@@ -363,18 +365,13 @@ window.testBaleChannelConnection = async function () {
 
         setStatus('botSettingsStatus', 'در حال بررسی کانال بله...', null);
 
-        // ۱) تلاش از مرورگر
+        // ۱) بررسی از مرورگر (شامل بررسی ادمین‌بودن ربات)
         if (typeof window.melkinoApiCall === 'function') {
             try {
-                const res = await window.melkinoApiCall('bale', 'getChat', { chat_id: channel });
-                if (res && res.ok && res.result) {
-                    const title = res.result.title || channel;
-                    const via = res.via === 'browser' ? 'از طریق مرورگر شما' : 'از طریق سرور';
-                    setStatus('botSettingsStatus', `✅ کانال بله در دسترس است: ${title} (${via})`, true);
-                    return;
-                }
-                if (res && res.description) {
-                    setStatus('botSettingsStatus', `❌ کانال بله: ${res.description}`, false);
+                const res = await window.melkinoCheckChannelAccess('bale', channel, 'کانال بله');
+                if (res.message) {
+                    const ok = res.message.indexOf('✅') === 0;
+                    setStatus('botSettingsStatus', res.message, ok);
                     return;
                 }
             } catch (e) {
@@ -391,6 +388,75 @@ window.testBaleChannelConnection = async function () {
         }
     };
 
+    /**
+     * بررسی کامل دسترسی به کانال:
+     *   ۱) آیا کانال برای ربات قابل شناسایی است؟ (getChat)
+     *   ۲) آیا ربات ادمینِ کانال است و اجازهٔ ارسال دارد؟ (getChatMember)
+     *
+     * چرا؟ قبلاً فقط getChat صدا زده می‌شد و اگر ربات عضو کانال نبود یا
+     * ادمین نبود، خطای مبهمی نشان داده می‌شد؛ در حالی که برای «انتشار در
+     * کانال» هر دو شرط لازم است.
+     */
+    window.melkinoCheckChannelAccess = async function (platform, channel, label) {
+        const result = { ok: false, message: '', browserError: '' };
+
+        if (typeof window.melkinoApiCall !== 'function') {
+            result.message = 'اسکریپت ارتباط با پیام‌رسان در صفحه لود نشده است.';
+            return result;
+        }
+
+        const chat = await window.melkinoApiCall(platform, 'getChat', { chat_id: channel });
+        if (!chat || !chat.ok) {
+            result.message = '❌ ' + (label || 'کانال') + ': ' +
+                ((chat && chat.description) || 'پاسخ نامعتبر از ' + (label || 'کانال') + '.');
+            if (chat && chat.browser_description) {
+                result.message += ' — دلیلِ مسیر مرورگر: ' + chat.browser_description;
+            }
+            return result;
+        }
+
+        const title = (chat.result && chat.result.title) || channel;
+        const found = { ok: true, message: '', browserError: '' };
+
+        // مرحلهٔ دوم: وضعیت ادمین‌بودنِ ربات
+        const me = await window.melkinoApiCall(platform, 'getMe', {});
+        const botId = me && me.ok && me.result ? me.result.id : null;
+
+        if (!botId) {
+            found.message = `✅ کانال پیدا شد: ${title} — اما نتوانستم ربات را شناسایی کنم (getMe).`;
+            return found;
+        }
+
+        const member = await window.melkinoApiCall(platform, 'getChatMember', {
+            chat_id: channel,
+            user_id: botId
+        });
+
+        if (!member || !member.ok || !member.result) {
+            found.message = `✅ کانال پیدا شد: ${title} — اما بررسی ادمین‌بودن ربات انجام نشد: ` +
+                ((member && member.description) || 'پاسخ نامعتبر');
+            return found;
+        }
+
+        const status = String(member.result.status || '');
+        const canPost = member.result.can_post_messages === true;
+
+        if (status === 'creator' || (status === 'administrator' && canPost)) {
+            found.message = `✅ کانال «${title}» آماده است — ربات ادمین است و اجازهٔ ارسال پیام دارد.`;
+            return found;
+        }
+
+        if (status === 'administrator' && !canPost) {
+            found.message = `⚠️ کانال «${title}»: ربات ادمین است ولی اجازهٔ «ارسال پیام» ندارد. ` +
+                'در تلگرام → مدیریت کانال → ادمین‌ها، گزینهٔ Post Messages را روشن کن.';
+            return found;
+        }
+
+        found.message = `⚠️ کانال «${title}»: ربات فقط «${status}» است و ادمین نیست. ` +
+            'ربات را در کانال ادمین کن (با اجازهٔ ارسال پیام) تا انتشار انجام شود.';
+        return found;
+    };
+
     window.testChannelConnection = async function () {
         const el = document.getElementById('botTelegramChannel');
         const channel = el ? el.value.trim() : '';
@@ -400,26 +466,21 @@ window.testBaleChannelConnection = async function () {
         }
         setStatus('botSettingsStatus', 'در حال بررسی کانال...', null);
 
-        // ۱) تلاش از مرورگر
+        // ۱) بررسی از مرورگر (روی هاست‌هایی که سرورشان به تلگرام دسترسی ندارد)
         if (typeof window.melkinoApiCall === 'function') {
             try {
-                const res = await window.melkinoApiCall('telegram', 'getChat', { chat_id: channel });
-                if (res && res.ok && res.result) {
-                    const title = res.result.title || channel;
-                    const via = res.via === 'browser' ? 'از طریق مرورگر شما' : 'از طریق سرور';
-                    setStatus('botSettingsStatus', `✅ کانال در دسترس است: ${title} (${via})`, true);
-                    return;
-                }
-                if (res && res.description) {
-                    setStatus('botSettingsStatus', `❌ کانال: ${res.description}`, false);
+                const res = await window.melkinoCheckChannelAccess('telegram', channel, 'کانال');
+                if (res.message) {
+                    const ok = res.message.indexOf('✅') === 0;
+                    setStatus('botSettingsStatus', res.message, ok);
                     return;
                 }
             } catch (e) {
-                // ادامه می‌دهیم به مسیر سرور
+                // ادامه به مسیر سرور
             }
         }
 
-        // ۲) تلاش از سرور
+        // ۲) مسیر پشتیبان: سرور
         try {
             const data = await postJson('admin-bots.php?action=test_channel', { channel: channel });
             setStatus('botSettingsStatus', data.message || '', data.success);

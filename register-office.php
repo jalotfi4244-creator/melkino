@@ -382,22 +382,34 @@ require_once __DIR__ . '/header.php';
     .upload-area { width: 100%; height: 120px; border: 2px dashed var(--border); border-radius: var(--radius-md); background: var(--bg); display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--text-secondary); gap: var(--space-1); cursor: pointer; transition: 0.3s; }
     .upload-area:hover { border-color: var(--primary); }
     
+    /* نوار دکمه‌های «مرحله قبل/بعد»
+       نکته: نوار پایینِ سایت (bottom-nav) ثابت است و ۷۵ پیکسل ارتفاع دارد؛
+       قبلاً این نوار روی دکمه‌ها می‌افتاد و دکمه‌ها بریده می‌شدند. حالا
+       بالای همان نوار می‌نشیند و در گوشی‌های باریک، دکمه‌ها به خط بعد
+       می‌روند تا هیچ‌وقت روی هم نیفتند. */
     .bottom-actions {
         position: sticky;
-        bottom: 0;        
+        bottom: calc(var(--bottom-nav-height, 75px) + env(safe-area-inset-bottom, 0px));
         width: 100%;
         padding: var(--space-2) var(--space-3);
         background: var(--surface);
         border-top: 1px solid var(--border);
+        border-radius: 14px 14px 0 0;
+        box-shadow: 0 -6px 18px rgba(0,0,0,.08);
         display: flex;
+        flex-wrap: wrap;
         justify-content: center;
         gap: var(--space-2);
-        z-index: 999;
+        z-index: 1000;
         box-sizing: border-box;
         margin-top: var(--space-3);
-        margin-bottom: 35px;
+        margin-bottom: 8px;
     }
-    .btn-secondary, .btn-primary-full { height: 52px; border-radius: var(--radius-md); font-weight: 700; font-size: 16px; display: flex; justify-content: center; align-items: center; padding: 0 var(--space-2); box-sizing: border-box; border: none; flex: 1; transition: all 0.2s ease; }
+    .btn-secondary, .btn-primary-full { height: 52px; border-radius: var(--radius-md); font-weight: 700; font-size: 16px; display: flex; justify-content: center; align-items: center; text-align: center; padding: 0 var(--space-1); box-sizing: border-box; border: none; flex: 1 1 140px; min-width: 0; transition: all 0.2s ease; }
+    @media (max-width: 380px) {
+        .bottom-actions { padding: 8px 10px; gap: 6px; }
+        .btn-secondary, .btn-primary-full { height: 48px; font-size: 14px; flex: 1 1 100%; }
+    }
     .btn-secondary { background: var(--bg); color: var(--text-secondary); border: 1px solid var(--border); }
     .btn-primary-full { background: var(--primary); color: #ffffff; }
     #fullRentGroup { display: none; }
@@ -709,14 +721,22 @@ require_once __DIR__ . '/header.php';
         // اطلاعات تماس در خودِ این صفحه نمایش داده می‌شود و قابل ویرایش است،
         // بنابراین کاربر دیگر به مرحله‌ی اول بازگردانده نمی‌شود و می‌تواند
         // نام/شماره‌ای را که در سیستم نیست یا اشتباه است، خودش وارد کند.
-        if (typeof window.melkinoContactCard === 'function') {
-            window.melkinoContactCard({
-                formId: 'propertyForm',
-                nameId: 'hidden_last_name',
-                phoneId: 'hidden_phone',
-                name: lastName,
-                phone: phone
-            });
+        // توجه: کارتِ «ویرایش پروفایل» طبق درخواست از بالای مراحل حذف شد؛
+        // اگر کاربر بخواهد نام/شماره‌اش را تغییر دهد، در «مرحله اول ثبت»
+        // (register-step1.php) این کار را انجام می‌دهد.
+        // فقط وقتی اطلاعات ناقص باشد، یک هشدار کوتاه با لینک مرحله اول
+        // نشان می‌دهیم تا ثبت بی‌دلیل ناموفق نماند.
+        if (!lastName || !phone) {
+            var missing = (!lastName && !phone) ? 'نام و شماره تماس' : (!phone ? 'شماره تماس' : 'نام');
+            var warn = document.createElement('div');
+            warn.id = 'melkinoContactWarn';
+            warn.setAttribute('dir', 'rtl');
+            warn.style.cssText = 'background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);color:#b45309;border-radius:12px;padding:10px 13px;margin:0 0 12px;font-size:12px;line-height:2;font-family:inherit;';
+            warn.innerHTML = '\u26a0\ufe0f ' + missing + ' شما ثبت نشده است. لطفاً ابتدا ' +
+                '<a href="register-step1.php" style="color:inherit;font-weight:800;text-decoration:underline;">مرحله اول ثبت</a> را تکمیل کنید.';
+            var formEl = document.getElementById('propertyForm');
+            if (formEl && formEl.firstChild) { formEl.insertBefore(warn, formEl.firstChild); }
+            else if (formEl) { formEl.appendChild(warn); }
         }
         
         // ==============================================

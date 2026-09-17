@@ -113,14 +113,25 @@
     };
 
     /**
-     * فراخوانی کامل: ابتدا از مرورگر، در صورت شکست از سرور
-     * خروجی: { ok, result, description, via }
+     * فراخوانی کامل: ابتدا از مرورگر، در صورت شکست از سرور.
+     *
+     * نکته‌ی مهم (باگِ قبلی):
+     *   قبلاً اگر فراخوانیِ مرورگر شکست می‌خورد، فقط نتیجهٔ سرور برگردانده
+     *   می‌شد. روی هاست‌هایی مثل InfinityFree که خروجیِ سرور به تلگرام بسته
+     *   است، همیشه پیامِ «سرور نتوانست وصل شود» دیده می‌شد و *علتِ واقعیِ*
+     *   خطای مرورگر (مثلاً «ربات در کانال ادمین نیست» یا «chat not found»)
+     *   گم می‌شد. حالا هر دو دلیل برگردانده می‌شوند تا ادمین بفهمد مشکل
+     *   دقیقاً چیست.
+     *
+     * خروجی: { ok, result, description, via, browser_description, server_description }
      */
     window.melkinoApiCall = async function (platform, method, params, options) {
         options = options || {};
 
+        let clientResult = null;
+
         if (!options.serverOnly) {
-            const clientResult = await window.melkinoClientCall(platform, method, params, options);
+            clientResult = await window.melkinoClientCall(platform, method, params, options);
             if (clientResult && clientResult.ok) {
                 return clientResult;
             }
@@ -129,7 +140,30 @@
             }
         }
 
-        return await window.melkinoServerCall(platform, method, params);
+        const serverResult = await window.melkinoServerCall(platform, method, params);
+
+        if (serverResult && serverResult.ok) {
+            return serverResult;
+        }
+
+        const browserDesc = (clientResult && clientResult.description) || '';
+        const serverDesc = (serverResult && serverResult.description) || '';
+
+        // اگر مرورگر دلیلِ مشخصی داده (خطای خودِ تلگرام/بله)، همان مهم‌تر
+        // است؛ در غیر این صورت خطای سرور نمایش داده می‌شود.
+        let description = browserDesc || serverDesc;
+        if (browserDesc && serverDesc && browserDesc !== serverDesc) {
+            description = browserDesc + ' (مسیر پشتیبانِ سرور هم ناموفق بود: ' + serverDesc + ')';
+        }
+
+        return {
+            ok: false,
+            result: null,
+            description: description,
+            via: 'none',
+            browser_description: browserDesc,
+            server_description: serverDesc
+        };
     };
 
     /** ثبتِ نتیجه‌ی ارسال موفق برای یک آگهی */
