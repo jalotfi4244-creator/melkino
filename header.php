@@ -277,14 +277,35 @@ $melkinoIsTelegram = (strpos($melkinoUa, 'telegram') !== false);
             try { var p = new URLSearchParams(h); return p.get('tgWebAppData') || ''; } catch (e) { return ''; }
         }
 
+        /*
+         * نکته‌ی مهم (باگِ قبلی «ورود به پروفایل کار نمی‌کند»):
+         *   قبلاً پرچمِ «همگام‌سازی انجام شد» *پیش از* ارسال درخواست در
+         *   sessionStorage ذخیره می‌شد و خطاها هم بی‌صدا خورده می‌شدند. یعنی
+         *   اگر همان یک‌بار اول درخواست شکست می‌خورد (نت کند، توکن تازه ذخیره
+         *   شده، یا ۴۰۱ موقت)، تا پایان عمر آن نشست *هرگز* دوباره تلاش
+         *   نمی‌شد و کاربر با صفحه‌ی «وارد شوید» گیر می‌کرد.
+         *   حالا پرچم فقط پس از موفقیت ثبت می‌شود و در صورت خطا، هم در
+         *   بازگشت به برنامه و هم در چند تلاشِ با فاصله، دوباره امتحان می‌شود.
+         */
+        var syncInFlight = false;
+
+        function markSynced(v) {
+            try { sessionStorage.setItem('melkino_profile_synced', v ? '1' : '0'); } catch (e) {}
+        }
+        function isSynced() {
+            try { return sessionStorage.getItem('melkino_profile_synced') === '1'; } catch (e) { return false; }
+        }
+
         function trySync() {
+            if (syncInFlight) return true;
+
             var d = sdkData();
             var data = d.telegram || d.bale;
             var platform = d.bale ? 'bale' : 'telegram';
             if (!data) data = hashData();
             if (!data) return false;
 
-            try { sessionStorage.setItem('melkino_profile_synced', '1'); } catch (e) {}
+            syncInFlight = true;
 
             fetch('profile-sync.php', {
                 method: 'POST',
@@ -293,22 +314,49 @@ $melkinoIsTelegram = (strpos($melkinoUa, 'telegram') !== false);
             })
             .then(function (r) { return r.json(); })
             .then(function (res) {
-                if (res && res.success && window.MELKINO_PROFILE) {
-                    window.MELKINO_PROFILE.logged_in = true;
-                    if (res.name) window.MELKINO_PROFILE.name = res.name;
-                    if (res.phone) window.MELKINO_PROFILE.phone = res.phone;
+                syncInFlight = false;
+                if (res && res.success) {
+                    markSynced(true);
+                    if (window.MELKINO_PROFILE) {
+                        window.MELKINO_PROFILE.logged_in = true;
+                        if (res.name) window.MELKINO_PROFILE.name = res.name;
+                        if (res.phone) window.MELKINO_PROFILE.phone = res.phone;
+                    }
+                    // اگر کاربر روی صفحه‌ی «وارد شوید» پروفایل است، صفحه را
+                    // دوباره بارگذاری می‌کنیم تا پروفایل واقعی را ببیند.
+                    try {
+                        if (/profile\.php/i.test(location.pathname)
+                            && document.body && document.body.innerHTML.indexOf('ورود به حساب کاربری') !== -1) {
+                            location.reload();
+                        }
+                    } catch (e) {}
+                } else {
+                    markSynced(false);
                 }
             })
-            .catch(function () {});
+            .catch(function () {
+                syncInFlight = false;
+                markSynced(false);
+            });
+
             return true;
         }
 
-        if (!trySync()) {
-            var tries = 0;
-            var timer = setInterval(function () {
-                tries++;
-                if (trySync() || tries > 40) clearInterval(timer);
-            }, 150);
+        if (!isSynced()) {
+            if (!trySync()) {
+                var tries = 0;
+                var timer = setInterval(function () {
+                    tries++;
+                    if (trySync() || tries > 40) clearInterval(timer);
+                }, 150);
+            }
+
+            // تلاش‌های پشتیبان: وقتی کاربر به برنامه برمی‌گردد یا بعد از چند
+            // ثانیه (اینترنت ضعیف در مینی‌اپ‌ها رایج است).
+            setTimeout(function () { if (!isSynced()) trySync(); }, 2500);
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden && !isSynced()) trySync();
+            });
         }
     })();
     </script>
