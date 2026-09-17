@@ -457,6 +457,74 @@ window.testBaleChannelConnection = async function () {
         return found;
     };
 
+    /**
+     * ارسالِ یک پیام آزمایشیِ واقعی به کانال.
+     *
+     * «تست دسترسی» فقط می‌گوید کانال دیده می‌شود؛ این تابع یک پیام واقعی
+     * به کانال می‌فرستد تا مطمئن شویم دکمهٔ «انتشار در تلگرام» هم عملاً
+     * کار می‌کند.
+     *
+     * روی هاست‌هایی که خروجیِ سرور به api.telegram.org بسته است، مسیر
+     * مرورگر جواب می‌دهد (همان مسیری که انتشار آگهی هم از آن استفاده
+     * می‌کند) و اگر مرورگر هم نتوانست، مسیر سرور به‌عنوان پشتیبان امتحان
+     * می‌شود.
+     */
+    window.testChannelSend = async function () {
+        const el = document.getElementById('botTelegramChannel');
+        const channel = el ? el.value.trim() : '';
+
+        if (!channel) {
+            setStatus('botSettingsStatus', 'ابتدا شناسه کانال را وارد کن.', false);
+            return;
+        }
+
+        setStatus('botSettingsStatus', 'در حال ارسال پیام آزمایشی به کانال...', null);
+
+        const testText =
+            '✅ پیام آزمایشی ملکینو\n' +
+            'اگر این پیام را می‌بینی، انتشار آگهی‌ها در کانال درست کار می‌کند.';
+
+        // ۱) مسیر مرورگر
+        if (typeof window.melkinoApiCall === 'function') {
+            try {
+                const res = await window.melkinoApiCall('telegram', 'sendMessage', {
+                    chat_id: channel,
+                    text: testText
+                });
+
+                if (res && res.ok) {
+                    setStatus(
+                        'botSettingsStatus',
+                        '✅ پیام آزمایشی در کانال ارسال شد؛ انتشار آگهی‌ها درست کار می‌کند.',
+                        true
+                    );
+                    return;
+                }
+
+                const why =
+                    (res && res.description) ||
+                    (res && res.browser_description) ||
+                    'پاسخ نامعتبر';
+
+                setStatus(
+                    'botSettingsStatus',
+                    '❌ مسیر مرورگر ناموفق بود: ' + why + ' — مسیر سرور امتحان می‌شود...',
+                    false
+                );
+            } catch (e) {
+                // ادامه می‌دهیم به مسیر سرور
+            }
+        }
+
+        // ۲) مسیر پشتیبان: سرور
+        try {
+            const data = await postJson('admin-bots.php?action=test_channel_send', { channel: channel });
+            setStatus('botSettingsStatus', data.message || '', data.success);
+        } catch (e) {
+            setStatus('botSettingsStatus', 'خطا در ارتباط با سرور.', false);
+        }
+    };
+
     window.testChannelConnection = async function () {
         const el = document.getElementById('botTelegramChannel');
         const channel = el ? el.value.trim() : '';
