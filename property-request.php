@@ -1297,6 +1297,34 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
         $requestId = (int)$pdo->lastInsertId();
 
+        // اعلان «درخواست شما ثبت شد» — بی‌صدا تا روند ثبت خراب نشود
+        try {
+            if (!function_exists('sendNotification')) {
+                require_once __DIR__ . '/db_helpers.php';
+            }
+            if (function_exists('sendNotification') && (!empty($userId) || $telegram_id !== '')) {
+                $eventsOn = true;
+                if (function_exists('melkinoEventsEnabled')) {
+                    $eventsOn = melkinoEventsEnabled();
+                }
+                if ($eventsOn) {
+                    $reqDesc = trim((string)($transaction_type ?? '') . ' ' . (string)($property_type ?? '') . ' ' . (string)($location ?? ''));
+                    sendNotification(
+                        !empty($userId) ? (int)$userId : null,
+                        $telegram_id !== '' ? $telegram_id : null,
+                        'request_submitted',
+                        '📋 درخواست شما ثبت شد',
+                        'درخواست ' . ($reqDesc !== '' ? '«' . $reqDesc . '» ' : '') . 'با کد پیگیری ' . $trackingCode . ' ثبت شد. به‌محض پیدا شدن فایل مناسب، همین‌جا خبرت می‌کنیم.',
+                        'requests.php',
+                        null,
+                        $requestId
+                    );
+                }
+            }
+        } catch (Throwable $e) {
+            // ignore
+        }
+
         // نکته‌ی امنیتی: تایپ‌کردن یک شماره در فرم، اثبات مالکیت آن
         // نیست. قبلاً اینجا $_SESSION['user_phone'] بی‌قیدوشرط پر
         // می‌شد؛ یعنی اگه کسی به‌جای شماره‌ی خودش شماره‌ی یک نفر

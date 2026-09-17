@@ -157,5 +157,11 @@
     })();
     </script>
 
+    <!-- نمایش مبلغ به حروف زیر فیلدهای قیمت -->
+    <script src="price-words.js"></script>
+
+    <!-- ویجت مقایسه ملک‌ها -->
+    <script src="compare-widget.js"></script>
+
 </body>
 </html>

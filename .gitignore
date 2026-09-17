@@ -1,0 +1,22 @@
+# ===== Melkino: files that must NEVER be committed =====
+
+# Real secrets (DB password, bot tokens, fallback admin password).
+# Created on the server from config.secrets.example.php — see that file.
+config.secrets.php
+
+# ===== Runtime-generated directories =====
+# Uploaded images & logos (created at runtime by the app)
+/uploads/
+/settings/
+
+# Backup archives (contain full database dumps) — never commit
+/backups/
+
+# ===== OS / editor junk =====
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*~
+.idea/
+.vscode/

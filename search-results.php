@@ -180,6 +180,26 @@ require_once __DIR__ . '/header.php';
         transform: scale(.98);
     }
 
+    .result-compare-btn {
+        height: 45px;
+        padding: 0 14px;
+        background: var(--surface);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        font-weight: 700;
+        font-family: inherit;
+        font-size: 13px;
+        cursor: pointer;
+        white-space: nowrap;
+        flex: 0 0 auto;
+    }
+
+    .result-compare-btn.in-compare {
+        color: var(--primary);
+        border-color: var(--primary);
+    }
+
     .empty-state {
         text-align: center;
         color: var(--text-secondary);
@@ -1462,13 +1482,26 @@ const MELKINO_PRICE_VISIBILITY={hide: <?= $__hideAllPublicPrices ? 'true' : 'fal
                 </div>
 
 
-                <a
-                    href="${detailsUrl}"
-                    class="result-detail-btn"
-                    style="margin-top:4px;"
-                >
-                    مشاهده جزئیات
-                </a>
+                <div style="display:flex;gap:8px;margin-top:4px;">
+
+                    <a
+                        href="${detailsUrl}"
+                        class="result-detail-btn"
+                        style="flex:1;width:auto;"
+                    >
+                        مشاهده جزئیات
+                    </a>
+
+                    <button
+                        type="button"
+                        class="result-compare-btn"
+                        data-compare-add="${escapeHtml(ad.id)}"
+                        title="افزودن به مقایسه"
+                    >
+                        ⚖️ مقایسه
+                    </button>
+
+                </div>
 
             `;
 

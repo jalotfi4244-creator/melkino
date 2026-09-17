@@ -458,12 +458,18 @@ if (!file_exists($logoPath)) {
         background: var(--bg-secondary);
     }
 
-    .map-box iframe {
+    #officeMapLink {
+        display: block;
         width: 100%;
-        height: 100%;
+    }
+
+    #officeMapImage {
+        width: 100%;
         min-height: 320px;
-        border: 0;
-        display: none;
+        max-height: 460px;
+        object-fit: cover;
+        display: block;
+        cursor: zoom-in;
     }
 
     .map-placeholder {
@@ -853,7 +859,7 @@ if (!file_exists($logoPath)) {
 
         .map-box,
         .map-placeholder,
-        .map-box iframe {
+        #officeMapImage {
             min-height: 260px;
         }
 
@@ -1323,7 +1329,7 @@ if (!file_exists($logoPath)) {
                 </div>
 
 
-                <!-- MAP -->
+                <!-- MAP IMAGE (admin uploads a screenshot of the map) -->
 
                 <div class="map-box">
 
@@ -1348,41 +1354,26 @@ if (!file_exists($logoPath)) {
 
 
                         <span>
-                            لینک نقشه دفتر از تنظیمات ملکینو در این قسمت نمایش داده می‌شود.
+                            تصویر نقشه دفتر هنوز ثبت نشده است.
                         </span>
 
                     </div>
 
 
-                    <div
-                        id="officeMap"
-                        style="display:none;width:100%;height:100%;z-index:1"
-                    ></div>
-
-
-                    <div
-                        class="map-overlay"
-                        id="mapOverlay"
+                    <a
+                        id="officeMapLink"
+                        href="#"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style="display:none;"
+                        title="برای مشاهده بزرگ‌تر کلیک کنید"
                     >
-
-                        <a
-                            href="#"
-                            id="mapDirectionBtn"
-                            class="map-direction-btn"
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        <img
+                            id="officeMapImage"
+                            src=""
+                            alt="موقعیت دفتر ملکینو روی نقشه"
                         >
-
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M12 19V5"/>
-                                <path d="M6 11l6-6 6 6"/>
-                            </svg>
-
-                            مسیریابی
-
-                        </a>
-
-                    </div>
+                    </a>
 
                 </div>
 
@@ -1926,10 +1917,7 @@ window.MELKINO_SERVER_CONTACT = <?= json_encode(
             instagram: '',
             linkedin: '',
             workingHours: '',
-            neshanKey: '',
-            officeLat: null,
-            officeLng: null,
-            officeZoom: 15,
+            mapImage: '',
             bale: '',
             customCards: []
         };
@@ -2092,162 +2080,6 @@ window.MELKINO_SERVER_CONTACT = <?= json_encode(
        RENDER CONTACT DATA
        ========================================================= */
 
-    /* =========================================================
-       بارگذاریِ نقشه‌ی نشان — فقط وقتی واقعاً لازم باشد
-       (اسکریپت به‌صورت async بارگیری می‌شود تا هرگز جلوی
-        نمایشِ صفحه را نگیرد)
-       ========================================================= */
-
-    let neshanSdkPromise = null;
-
-
-    function loadNeshanSdk() {
-
-        if (neshanSdkPromise) {
-            return neshanSdkPromise;
-        }
-
-        neshanSdkPromise =
-            new Promise(function (resolve, reject) {
-
-                const css =
-                    document.createElement(
-                        'link'
-                    );
-
-                css.rel =
-                    'stylesheet';
-
-                css.href =
-                    'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.css';
-
-                document.head.appendChild(
-                    css
-                );
-
-
-                const script =
-                    document.createElement(
-                        'script'
-                    );
-
-                script.async =
-                    true;
-
-                script.src =
-                    'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.js';
-
-                script.onload =
-                    function () {
-                        resolve();
-                    };
-
-                script.onerror =
-                    function () {
-                        reject(
-                            new Error(
-                                'Neshan SDK failed to load'
-                            )
-                        );
-                    };
-
-                document.head.appendChild(
-                    script
-                );
-            });
-
-        return neshanSdkPromise;
-    }
-
-
-    function initNeshanMap(
-        containerId,
-        key,
-        lat,
-        lng,
-        zoom,
-        draggable,
-        onMove
-    ) {
-
-        return loadNeshanSdk()
-            .then(function () {
-
-                if (typeof L === 'undefined') {
-                    return null;
-                }
-
-                const map =
-                    new L.Map(
-                        containerId,
-                        {
-                            key: key,
-                            maptype: 'dreamy',
-                            center: [lat, lng],
-                            zoom: zoom,
-                            poi: true,
-                            traffic: false
-                        }
-                    );
-
-                const marker =
-                    L.marker(
-                        [lat, lng],
-                        {
-                            draggable: !!draggable
-                        }
-                    ).addTo(map);
-
-
-                if (draggable && onMove) {
-
-                    marker.on(
-                        'dragend',
-                        function () {
-
-                            const pos =
-                                marker.getLatLng();
-
-                            onMove(
-                                pos.lat,
-                                pos.lng
-                            );
-                        }
-                    );
-
-                    map.on(
-                        'click',
-                        function (event) {
-
-                            marker.setLatLng(
-                                event.latlng
-                            );
-
-                            onMove(
-                                event.latlng.lat,
-                                event.latlng.lng
-                            );
-                        }
-                    );
-                }
-
-                return {
-                    map: map,
-                    marker: marker
-                };
-            })
-            .catch(function (error) {
-
-                console.warn(
-                    'نقشه‌ی نشان بارگیری نشد:',
-                    error
-                );
-
-                return null;
-            });
-    }
-
-
     function renderContactPage() {
 
         const data = loadContactInfo();
@@ -2302,39 +2134,10 @@ window.MELKINO_SERVER_CONTACT = <?= json_encode(
             ).trim();
 
 
-        const neshanKey =
+        const mapImage =
             String(
-                data.neshanKey || ''
+                data.mapImage || ''
             ).trim();
-
-
-        function toCoord(value) {
-
-            if (
-                value === null ||
-                value === undefined ||
-                value === ''
-            ) {
-                return null;
-            }
-
-            const num =
-                Number(value);
-
-            return isFinite(num)
-                ? num
-                : null;
-        }
-
-
-        const officeLat =
-            toCoord(data.officeLat);
-
-        const officeLng =
-            toCoord(data.officeLng);
-
-        const officeZoom =
-            Number(data.officeZoom) || 15;
 
 
         const workingHours =
@@ -2801,12 +2604,18 @@ window.MELKINO_SERVER_CONTACT = <?= json_encode(
 
 
         /* =====================================================
-           MAP
+           MAP IMAGE (uploaded by admin)
            ===================================================== */
 
-        const officeMapEl =
+        const officeMapLink =
             document.getElementById(
-                'officeMap'
+                'officeMapLink'
+            );
+
+
+        const officeMapImage =
+            document.getElementById(
+                'officeMapImage'
             );
 
 
@@ -2816,86 +2625,29 @@ window.MELKINO_SERVER_CONTACT = <?= json_encode(
             );
 
 
-        const mapOverlay =
-            document.getElementById(
-                'mapOverlay'
-            );
+        if (mapImage) {
 
+            if (officeMapImage) {
+                officeMapImage.src = mapImage;
+            }
 
-        const mapDirectionBtn =
-            document.getElementById(
-                'mapDirectionBtn'
-            );
-
-
-        const hasCoords =
-            officeLat !== null &&
-            officeLng !== null;
-
-
-        if (neshanKey && hasCoords) {
+            if (officeMapLink) {
+                officeMapLink.href = mapImage;
+                officeMapLink.style.display = 'block';
+            }
 
             if (mapPlaceholder) {
-
-                mapPlaceholder.style.display =
-                    'none';
+                mapPlaceholder.style.display = 'none';
             }
-
-            if (officeMapEl) {
-
-                officeMapEl.style.display =
-                    'block';
-            }
-
-            if (mapOverlay) {
-
-                mapOverlay.style.display =
-                    'block';
-            }
-
-
-            if (mapDirectionBtn) {
-
-                mapDirectionBtn.href =
-                    'https://nshn.ir/?lat=' +
-                    encodeURIComponent(
-                        officeLat
-                    ) +
-                    '&lng=' +
-                    encodeURIComponent(
-                        officeLng
-                    );
-            }
-
-
-            initNeshanMap(
-                'officeMap',
-                neshanKey,
-                officeLat,
-                officeLng,
-                officeZoom,
-                false,
-                null
-            );
 
         } else {
 
-            if (officeMapEl) {
-
-                officeMapEl.style.display =
-                    'none';
+            if (officeMapLink) {
+                officeMapLink.style.display = 'none';
             }
 
             if (mapPlaceholder) {
-
-                mapPlaceholder.style.display =
-                    'flex';
-            }
-
-            if (mapOverlay) {
-
-                mapOverlay.style.display =
-                    'none';
+                mapPlaceholder.style.display = 'flex';
             }
         }
     }

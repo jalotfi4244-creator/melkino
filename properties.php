@@ -446,6 +446,16 @@ require_once __DIR__ . '/header.php';
         cursor: pointer;
     }
 
+    .property-compare {
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .property-like.in-compare {
+        color: var(--primary);
+        border-color: var(--primary);
+    }
+
     /* =========================================================
        EMPTY
     ========================================================== */
@@ -2294,6 +2304,17 @@ require_once __DIR__ . '/header.php';
 
                         </svg>
 
+                    </button>
+
+
+                    <button
+                        type="button"
+                        class="property-like property-compare"
+                        data-compare-add="${escapeHtml(ad.id)}"
+                        aria-label="افزودن به مقایسه"
+                        title="افزودن به مقایسه"
+                    >
+                        ⚖️
                     </button>
 
                 </div>

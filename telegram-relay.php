@@ -157,7 +157,7 @@ switch ($relayAction) {
             : (function_exists('melkinoChannelId') ? (string)melkinoChannelId() : melkinoBotSetting('telegram_channel'));
 
         $text = function_exists('melkinoAdMessageText')
-            ? melkinoAdMessageText($ad, $platform !== 'bale')
+            ? melkinoAdMessageText($ad, $platform !== 'bale', $platform)
             : (string)($ad['title'] ?? '');
 
         $photoUrl = function_exists('melkinoAdImageUrl') ? melkinoAdImageUrl($ad) : '';

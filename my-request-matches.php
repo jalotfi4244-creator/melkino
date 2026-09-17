@@ -530,6 +530,64 @@ if (isset($_GET['action'])) {
 
 
     // ========================================================
+    // REFRESH ALL MATCHES
+    // محاسبه‌ی مجدد پیشنهادها برای همه‌ی درخواست‌های کاربر
+    // ========================================================
+
+    if ($_GET['action'] === 'refresh_all') {
+
+        if (
+            empty($identity['user_id']) &&
+            empty($identity['telegram_id'])
+        ) {
+            melkinoJsonResponse(
+                [
+                    'success' => false,
+                    'message' => 'کاربر شناسایی نشد.'
+                ],
+                401
+            );
+        }
+
+        try {
+            @set_time_limit(120);
+        } catch (Throwable $e) {
+        }
+
+        $requests = mm8OwnRequests($identity);
+        $refreshed = 0;
+        $totalMatches = 0;
+
+        foreach ($requests as $req) {
+            $rid = (int)($req['id'] ?? 0);
+            if ($rid <= 0) {
+                continue;
+            }
+            try {
+                $matches = m5EnsureRequestMatches($rid);
+                $refreshed++;
+                if (is_array($matches)) {
+                    $totalMatches += count($matches);
+                }
+            } catch (Throwable $e) {
+                // ادامه با درخواست بعدی
+            }
+        }
+
+        melkinoJsonResponse(
+            [
+                'success' => true,
+                'message' => $refreshed > 0
+                    ? 'پیشنهادهای ' . $refreshed . ' درخواست به‌روزرسانی شد.'
+                    : 'درخواستی برای به‌روزرسانی پیدا نشد.',
+                'refreshed' => $refreshed,
+                'total_matches' => $totalMatches,
+            ]
+        );
+    }
+
+
+    // ========================================================
     // DATA
     // ========================================================
 

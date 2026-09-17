@@ -381,9 +381,13 @@ if (!function_exists('melkinoProfilePrefill')) {
  * متن کاملِ یک آگهی برای ارسال به تلگرام/بله (با فرمت HTML برای تلگرام).
  * این تابع مشترک است تا متنی که از «سرور» فرستاده می‌شود با متنی که از
  * «مرورگر» فرستاده می‌شود دقیقاً یکسان باشد.
+ *
+ * کدام فیلدها بیایند و چه متن ثابتی بالا/پایین همه‌ی آگهی‌ها باشد، از
+ * تنظیمات انتشار هر پلتفرم (تب «ربات و کانال») خوانده می‌شود. اگر چیزی
+ * تنظیم نشده باشد، همه‌ی فیلدها می‌آیند (همان رفتار قبلی).
  */
 if (!function_exists('melkinoAdMessageText')) {
-    function melkinoAdMessageText(array $ad, bool $html = true): string
+    function melkinoAdMessageText(array $ad, bool $html = true, string $platform = 'telegram'): string
     {
         $esc = function ($text) use ($html) {
             $text = (string)$text;
@@ -398,64 +402,121 @@ if (!function_exists('melkinoAdMessageText')) {
             return number_format((float)str_replace(',', '', $raw), 0, '.', ',') . ' تومان';
         };
 
-        $lines = [];
-        $lines[] = ($html ? '🏠 <b>' : '🏠 ') . $esc($ad['title'] ?: 'آگهی ملک') . ($html ? '</b>' : '');
-        $lines[] = '';
-        $lines[] = '📌 نوع معامله: ' . $esc($ad['transaction_type'] ?: '-');
-        $lines[] = '🏷️ نوع ملک: ' . $esc($ad['property_type'] ?: '-');
+        // تنظیمات انتشار این پلتفرم (با fallback به رفتار قبلی)
+        $enabledFields = null; // null یعنی همه‌ی فیلدها روشن
+        $pubHeader = '';
+        $pubFooter = '';
+        if (function_exists('melkinoPublishSettings')) {
+            try {
+                $pub = melkinoPublishSettings($platform);
+                $enabledFields = is_array($pub['fields'] ?? null) ? array_map('strval', $pub['fields']) : null;
+                $pubHeader = trim((string)($pub['header'] ?? ''));
+                $pubFooter = trim((string)($pub['footer'] ?? ''));
+            } catch (Throwable $e) {
+                $enabledFields = null;
+            }
+        }
+        $on = function (string $key) use ($enabledFields) {
+            return $enabledFields === null || in_array($key, $enabledFields, true);
+        };
 
-        if (!empty($ad['location'])) {
+        $lines = [];
+
+        if ($pubHeader !== '') {
+            $lines[] = $esc($pubHeader);
+            $lines[] = '';
+        }
+
+        if ($on('title')) {
+            $lines[] = ($html ? '🏠 <b>' : '🏠 ') . $esc($ad['title'] ?: 'آگهی ملک') . ($html ? '</b>' : '');
+            $lines[] = '';
+        }
+        if ($on('transaction')) {
+            $lines[] = '📌 نوع معامله: ' . $esc($ad['transaction_type'] ?: '-');
+        }
+        if ($on('property_type')) {
+            $lines[] = '🏷️ نوع ملک: ' . $esc($ad['property_type'] ?: '-');
+        }
+        if ($on('location') && !empty($ad['location'])) {
             $lines[] = '📍 موقعیت: ' . $esc($ad['location']);
         }
-        if (!empty($ad['address'])) {
+        if ($on('address') && !empty($ad['address'])) {
             $lines[] = '🗺️ آدرس: ' . $esc($ad['address']);
         }
-        if (!empty($ad['area'])) {
+        if ($on('area') && !empty($ad['area'])) {
             $lines[] = '📐 متراژ: ' . $esc($ad['area']) . ' متر';
         }
-        if (!empty($ad['rooms'])) {
+        if ($on('rooms') && !empty($ad['rooms'])) {
             $lines[] = '🛏️ تعداد اتاق: ' . $esc($ad['rooms']);
         }
-        if (!empty($ad['floor'])) {
+        if ($on('floor') && !empty($ad['floor'])) {
             $lines[] = '🏢 طبقه: ' . $esc($ad['floor']);
         }
-        if (!empty($ad['year'])) {
+        if ($on('year') && !empty($ad['year'])) {
             $lines[] = '📅 سال ساخت: ' . $esc($ad['year']);
         }
 
-        if (empty($ad['price_hidden'])) {
-            $priceLine = '';
-            if (!empty($ad['price_sell'])) {
-                $priceLine = '💰 قیمت فروش: ' . $money($ad['price_sell']);
-            } elseif (!empty($ad['full_rent_enabled']) && !empty($ad['full_rent'])) {
-                $priceLine = '💰 اجاره کامل: ' . $money($ad['full_rent']);
-            } elseif (!empty($ad['deposit']) || !empty($ad['rent_monthly'])) {
-                $priceLine = '💰 ودیعه: ' . $money($ad['deposit']) . ' | اجاره: ' . $money($ad['rent_monthly']);
-            } elseif (!empty($ad['total_price'])) {
-                $priceLine = '💰 قیمت کل: ' . $money($ad['total_price']);
+        if ($on('price')) {
+            if (empty($ad['price_hidden'])) {
+                $priceLine = '';
+                if (!empty($ad['price_sell'])) {
+                    $priceLine = '💰 قیمت فروش: ' . $money($ad['price_sell']);
+                } elseif (!empty($ad['full_rent_enabled']) && !empty($ad['full_rent'])) {
+                    $priceLine = '💰 اجاره کامل: ' . $money($ad['full_rent']);
+                } elseif (!empty($ad['deposit']) || !empty($ad['rent_monthly'])) {
+                    $priceLine = '💰 ودیعه: ' . $money($ad['deposit']) . ' | اجاره: ' . $money($ad['rent_monthly']);
+                } elseif (!empty($ad['total_price'])) {
+                    $priceLine = '💰 قیمت کل: ' . $money($ad['total_price']);
+                }
+                if ($priceLine !== '') {
+                    $lines[] = $priceLine;
+                }
+            } else {
+                $lines[] = '💰 قیمت: توافقی (تماس بگیرید)';
             }
-            if ($priceLine !== '') {
-                $lines[] = $priceLine;
-            }
-        } else {
-            $lines[] = '💰 قیمت: توافقی (تماس بگیرید)';
         }
 
-        if (!empty($ad['description'])) {
+        if ($on('description') && !empty($ad['description'])) {
             $lines[] = '';
             $lines[] = '📝 ' . $esc($ad['description']);
         }
 
-        $lines[] = '';
-        $lines[] = '👤 تماس: ' . $esc($ad['last_name'] ?: '-');
-        if (!empty($ad['phone'])) {
+        if ($on('contact') || ($on('phone') && !empty($ad['phone']))) {
+            $lines[] = '';
+        }
+        if ($on('contact')) {
+            $lines[] = '👤 تماس: ' . $esc($ad['last_name'] ?: '-');
+        }
+        if ($on('phone') && !empty($ad['phone'])) {
             $lines[] = '📞 شماره تماس: ' . $esc($ad['phone']);
         }
+        if ($on('consultant')) {
+            $cName = function_exists('getConsultantName') ? trim((string)getConsultantName()) : '';
+            $cPhone = function_exists('getConsultantPhone') ? trim((string)getConsultantPhone()) : '';
+            if ($cName !== '' || $cPhone !== '') {
+                $consultLine = $cName;
+                if ($cName !== '' && $cPhone !== '') {
+                    $consultLine .= ' - ';
+                }
+                $consultLine .= $cPhone;
+                $lines[] = '☎️ مشاور ملکینو: ' . $esc($consultLine);
+            }
+        }
 
-        $lines[] = '';
-        $lines[] = '🔗 کد آگهی: ' . $esc($ad['id']);
+        if ($on('ad_id')) {
+            $lines[] = '';
+            $lines[] = '🔗 کد آگهی: ' . $esc($ad['id']);
+        }
 
-        return implode("\n", $lines);
+        if ($pubFooter !== '') {
+            $lines[] = '';
+            $lines[] = $esc($pubFooter);
+        }
+
+        // خط‌های خالیِ اضافه (ناشی از خاموش‌بودن فیلدها) جمع می‌شوند
+        $text = implode("\n", $lines);
+        $text = (string)preg_replace("/\n{3,}/", "\n\n", $text);
+        return trim($text);
     }
 }
 
@@ -710,4 +771,82 @@ function sendNotification($userId, $telegramId, $type, $title, $message, $url = 
         $requestId ?: null,
         $matchPercent !== null ? (int)$matchPercent : null
     ]);
+}
+
+/**
+ * آیا اعلان‌های رویدادی فعال‌اند؟ (تنظیم عمومی enable_notifications)
+ */
+function melkinoEventsEnabled(): bool
+{
+    try {
+        global $pdo;
+        if (!function_exists('dbSettingGet') || !($pdo instanceof PDO)) {
+            return true;
+        }
+        return (bool)dbSettingGet($pdo, 'global', 'enable_notifications', true);
+    } catch (Throwable $e) {
+        return true;
+    }
+}
+
+/**
+ * ارسال اعلان به صاحب یک شماره موبایل.
+ *
+ * آگهی‌ها ستون user_id ندارند و مالک با شماره تماس پیدا می‌شود؛ این تابع
+ * شماره را نرمال می‌کند، کاربر متناظر را از جدول users پیدا می‌کند و اعلان
+ * را برایش ثبت می‌کند. اگر کاربری پیدا نشود یا اعلان‌ها خاموش باشند،
+ * بی‌صدا false برمی‌گردد (روند اصلی نباید به‌خاطر اعلان بشکند).
+ */
+function melkinoNotifyByPhone(string $phone, string $type, string $title, string $message, ?string $url = null, $adId = null, $requestId = null): bool
+{
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return false;
+    }
+    if (!melkinoEventsEnabled()) {
+        return false;
+    }
+
+    $normalized = function_exists('melkinoNormalizePhone')
+        ? melkinoNormalizePhone($phone)
+        : trim($phone);
+    if ($normalized === '') {
+        return false;
+    }
+
+    // شماره‌ها ممکن است با فرمت‌های مختلف ذخیره شده باشند
+    $candidates = [$normalized];
+    if (strpos($normalized, '0') === 0 && strlen($normalized) > 1) {
+        $candidates[] = substr($normalized, 1);
+        $candidates[] = '98' . substr($normalized, 1);
+    } elseif (strpos($normalized, '98') === 0) {
+        $candidates[] = '0' . substr($normalized, 2);
+    } else {
+        $candidates[] = '0' . $normalized;
+    }
+    $candidates = array_values(array_unique($candidates));
+
+    try {
+        $placeholders = implode(',', array_fill(0, count($candidates), '?'));
+        $stmt = $pdo->prepare(
+            "SELECT id, telegram_id FROM users WHERE phone IN ($placeholders) ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute($candidates);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return false;
+        }
+        return sendNotification(
+            (int)$row['id'],
+            !empty($row['telegram_id']) ? (string)$row['telegram_id'] : null,
+            $type,
+            $title,
+            $message,
+            $url,
+            $adId,
+            $requestId
+        );
+    } catch (Throwable $e) {
+        return false;
+    }
 }
