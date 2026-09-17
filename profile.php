@@ -6,6 +6,8 @@ session_start();
 // قبلاً header.php اول لود می‌شد (که خروجی HTML می‌دهد) و بعد config.php.
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db_helpers.php';
+require_once __DIR__ . '/bot-settings.php';
+require_once __DIR__ . '/compare-lib.php';
 
 $userName  = trim((string)($_SESSION['user_name'] ?? '')) ?: 'کاربر ملکینو';
 $userPhone = trim((string)($_SESSION['user_phone'] ?? ''));
@@ -45,6 +47,20 @@ if ($userPhone === '' && empty($identity['telegram_id']) && empty($identity['use
         <a href="login.php" style="display:block;padding:14px;border-radius:12px;background:linear-gradient(135deg,var(--primary,#0E7C6E),#0B5D5B);color:#fff;text-decoration:none;font-weight:700;">
             🔑 ورود به حساب کاربری
         </a>
+
+        <!--
+            دکمهٔ «تلاش دوباره» برای کاربرانِ مینی‌اپ تلگرام/بله:
+            اگر همگام‌سازی هویت یک‌بار ناموفق مانده باشد (نت ضعیف، توکن
+            تازه‌ذخیره‌شده و...)، با این دکمه پرچم تلاشِ قبلی پاک و صفحه
+            دوباره بارگذاری می‌شود تا پروفایل واقعی باز شود.
+        -->
+        <button
+            type="button"
+            onclick="(function(){try{sessionStorage.removeItem('melkino_profile_synced');}catch(e){}location.reload();})();"
+            style="display:block;width:100%;margin-top:10px;padding:12px;border-radius:12px;background:transparent;border:1px solid var(--border,#223330);color:var(--text-secondary,#A8B1AE);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;"
+        >
+            🔄 تلاش دوباره (کاربران تلگرام / بله)
+        </button>
     </div>
     <?php
     require_once __DIR__ . '/footer.php';
@@ -83,6 +99,31 @@ if ($pdo instanceof PDO) {
         }
     }
 }
+
+/*
+|--------------------------------------------------------------------------
+| کارت‌های پروفایل: تعداد مقایسه + لینک کانال تلگرام
+|--------------------------------------------------------------------------
+| تعداد مقایسه اینجا (سمت سرور) خوانده می‌شود تا کارتِ مقایسه حتی بدون
+| جاوااسکریپت هم عدد درست را نشان دهد. لینک کانال هم از تنظیماتِ
+| «ربات و کانال» پنل ادمین ساخته می‌شود.
+|--------------------------------------------------------------------------
+*/
+$compareCount = 0;
+if ($pdo instanceof PDO) {
+    try {
+        melkinoEnsureCompareTables($pdo);
+        melkinoCompareMergeGuest($pdo, $identity);
+        [$cmpWhere, $cmpParams] = melkinoCompareOwner($identity, 'ci');
+        if ($cmpWhere !== '') {
+            $compareCount = melkinoCompareCount($pdo, $cmpWhere, $cmpParams);
+        }
+    } catch (Throwable $e) {
+        $compareCount = 0;
+    }
+}
+
+$channelUrl = function_exists('melkinoChannelUrl') ? melkinoChannelUrl() : '';
 
 /*
 |--------------------------------------------------------------------------
@@ -2312,73 +2353,116 @@ require_once __DIR__ . '/header.php';
              LOGOUT
              ===================================================== -->
 
+        <!-- =====================================================
+             کارتِ مقایسهٔ ملک‌ها → صفحهٔ مستقل مقایسه
+             ===================================================== -->
+
         <section class="profile-section" id="compareSection">
 
-            <div class="profile-section-header">
+            <a href="compare-page.php" class="profile-menu-item">
 
-                <div class="profile-section-title">
+                <div class="profile-menu-left">
 
-                    <div class="profile-section-icon">
-
-                        <span style="font-size:20px;line-height:1;">⚖️</span>
-
+                    <div class="profile-menu-icon">
+                        <span style="font-size:19px;line-height:1;">⚖️</span>
                     </div>
 
                     <div>
 
-                        <h2>
-                            مقایسه ملک‌ها
-                        </h2>
+                        <div class="profile-menu-title">
+                            مقایسهٔ ملک‌ها
+                        </div>
 
-                        <p>
-                            تا ۵ ملک در هر دسته — خودت انتخاب کن کدام‌ها با هم مقایسه شوند
-                        </p>
+                        <div class="profile-menu-description">
+                            <?php if ($compareCount > 0): ?>
+                                <?= (int)$compareCount ?> ملک در مقایسه — برای دیدن جدول امتیازها بزن
+                            <?php else: ?>
+                                ملک‌ها را به مقایسه اضافه کن و اینجا کنار هم ببین
+                            <?php endif; ?>
+                        </div>
 
                     </div>
 
                 </div>
 
-            </div>
+                <div style="display:flex;align-items:center;gap:10px;">
 
+                    <span
+                        id="compareCardCount"
+                        style="min-width:26px;height:26px;padding:0 8px;border-radius:999px;display:<?= $compareCount > 0 ? 'inline-flex' : 'none' ?>;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--primary),#0b5d5b);color:#fff;font-size:11px;font-weight:800;"
+                    ><?= (int)$compareCount ?></span>
 
-            <div
-                class="compare-tabs"
-                id="compareTabs"
-            ></div>
+                    <div class="profile-menu-arrow">
 
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <polyline points="15 18 9 12 15 6"/>
+                        </svg>
 
-            <div
-                class="compare-items"
-                id="compareItems"
-            ></div>
+                    </div>
 
+                </div>
 
-            <div class="compare-actions">
-
-                <button
-                    type="button"
-                    class="cmp-btn cmp-btn-primary"
-                    id="compareScoreBtn"
-                    onclick="cmpScore()"
-                >
-                    📊 مقایسه و امتیازدهی
-                </button>
-
-                <button
-                    type="button"
-                    class="cmp-btn"
-                    id="compareClearBtn"
-                    onclick="cmpClear()"
-                >
-                    🗑 خالی کردن دسته
-                </button>
-
-            </div>
-
-
-            <div id="compareScore"></div>
+            </a>
 
         </section>
+
+
+        <?php if (!empty($channelUrl)): ?>
+        <!-- =====================================================
+             ورود به کانال تلگرام ملکینو
+             ===================================================== -->
+
+        <section class="profile-section">
+
+            <a
+                href="<?= htmlspecialchars($channelUrl, ENT_QUOTES, 'UTF-8') ?>"
+                class="profile-menu-item"
+                target="_blank"
+                rel="noopener"
+            >
+
+                <div class="profile-menu-left">
+
+                    <div class="profile-menu-icon">
+                        <span style="font-size:19px;line-height:1;">📢</span>
+                    </div>
+
+                    <div>
+
+                        <div class="profile-menu-title">
+                            کانال تلگرام ملکینو
+                        </div>
+
+                        <div class="profile-menu-description">
+                            جدیدترین آگهی‌ها را در کانال ببین و عضو شو
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="profile-menu-arrow">
+
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+
+                </div>
+
+            </a>
+
+        </section>
+        <?php endif; ?>
 
 
         <section class="profile-section">
@@ -3826,12 +3910,24 @@ require_once __DIR__ . '/header.php';
                 );
             }
 
-            document.addEventListener(
-                'melkino:compare-changed',
-                cmpLoad
-            );
-
-            cmpLoad();
+            /*
+             * مدیریت کاملِ مقایسه به صفحهٔ مستقلِ «compare-page.php» منتقل
+             * شده و در پروفایل فقط کارتِ ورودی به آن صفحه هست؛ بنابراین
+             * دیگر compare.php را در پروفایل صدا نمی‌زنیم (تعریفِ توابعِ
+             * قدیمی برای سازگاری باقی مانده است).
+             */
+            var compareCardCount = document.getElementById('compareCardCount');
+            if (compareCardCount) {
+                fetch('compare.php?action=count', { cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (!data || !data.success) return;
+                        var n = Number(data.count) || 0;
+                        compareCardCount.textContent = n;
+                        compareCardCount.style.display = n > 0 ? 'inline-flex' : 'none';
+                    })
+                    .catch(function () { /* عدد کارت اختیاری است */ });
+            }
         }
     );
 
