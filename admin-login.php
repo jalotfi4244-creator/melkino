@@ -4,10 +4,19 @@ require_once __DIR__ . '/config.php';
 
 // رمز پشتیبان فقط از فایل محرمانه (یا متغیر محیطی) خوانده می‌شود؛
 // دیگر هیچ رمزی داخل کدِ commit شده وجود ندارد.
+// اولویت خواندن:
+//   1) ثابت MELKINO_LEGACY_ADMIN_PASSWORD از config.secrets.php (لودشده در config.php)
+//   2) متغیر محیطی MELKINO_LEGACY_ADMIN_PASSWORD
 if (!defined('LEGACY_ADMIN_PASSWORD')) {
-    $melkinoLegacyAdminPassword = getenv('MELKINO_LEGACY_ADMIN_PASSWORD');
-    if ($melkinoLegacyAdminPassword === false || $melkinoLegacyAdminPassword === '') {
-        $melkinoLegacyAdminPassword = $_ENV['MELKINO_LEGACY_ADMIN_PASSWORD'] ?? '';
+    $melkinoLegacyAdminPassword = '';
+    if (defined('MELKINO_LEGACY_ADMIN_PASSWORD')) {
+        $melkinoLegacyAdminPassword = (string)MELKINO_LEGACY_ADMIN_PASSWORD;
+    }
+    if ($melkinoLegacyAdminPassword === '') {
+        $melkinoLegacyAdminPassword = getenv('MELKINO_LEGACY_ADMIN_PASSWORD');
+        if ($melkinoLegacyAdminPassword === false || $melkinoLegacyAdminPassword === '') {
+            $melkinoLegacyAdminPassword = $_ENV['MELKINO_LEGACY_ADMIN_PASSWORD'] ?? '';
+        }
     }
     define('LEGACY_ADMIN_PASSWORD', (string)$melkinoLegacyAdminPassword);
 }

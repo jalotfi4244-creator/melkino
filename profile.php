@@ -1,6 +1,11 @@
 <?php
 session_start();
-require_once __DIR__ . '/header.php';
+
+// نکته: config.php باید پیش از هر خروجی لود شود تا ریدایرکت‌های آن
+// (اجبار HTTPS، حالت تعمیرات) و هندلر مرکزی خطا درست کار کنند.
+// قبلاً header.php اول لود می‌شد (که خروجی HTML می‌دهد) و بعد config.php.
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/db_helpers.php';
 
 $userName  = trim((string)($_SESSION['user_name'] ?? '')) ?: 'کاربر ملکینو';
 $userPhone = trim((string)($_SESSION['user_phone'] ?? ''));
@@ -21,8 +26,6 @@ $favoriteCount     = 0;
 $notificationCount = 0;
 $matchCount = 0;
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/db_helpers.php';
 $identity = melkinoCurrentIdentity();
 if (!empty($identity['user']['name'])) { $userName=trim((string)$identity['user']['name']); $_SESSION['user_name']=$userName; }
 if ($userPhone==='' && !empty($identity['phone'])) { $userPhone=trim((string)$identity['phone']); $_SESSION['user_phone']=$userPhone; }
@@ -31,6 +34,7 @@ if ($userPhone==='' && !empty($identity['phone'])) { $userPhone=trim((string)$id
 // درست بعد از خروج از حساب — پروفایل بی‌صدا خالی نمایش داده می‌شد.
 // حالا در این حالت یک صفحه‌ی «ورود به حساب» واقعی نشان داده می‌شود.
 if ($userPhone === '' && empty($identity['telegram_id']) && empty($identity['user_id'])) {
+    require_once __DIR__ . '/header.php';
     ?>
     <div style="max-width:420px;margin:60px auto;padding:36px 28px;background:var(--bg-card,#16211F);border:1px solid var(--border,#223330);border-radius:20px;text-align:center;">
         <div style="font-size:40px;margin-bottom:10px;">👋</div>
@@ -86,6 +90,7 @@ if ($pdo instanceof PDO) {
 |--------------------------------------------------------------------------
 */
 
+require_once __DIR__ . '/header.php';
 ?>
 
 <style>
@@ -2381,4 +2386,5 @@ if ($pdo instanceof PDO) {
 
 <?php
 require_once __DIR__ . '/footer.php';
+?>;
 ?>
