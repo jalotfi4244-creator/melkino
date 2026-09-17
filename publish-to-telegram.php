@@ -19,6 +19,8 @@
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/db_helpers.php';
+require_once __DIR__ . '/bot-settings.php';
 
 if (empty($_SESSION['is_admin'])) {
     http_response_code(403);
@@ -41,18 +43,27 @@ if ($adId === '') {
     exit;
 }
 
-if (!defined('BOT_TOKEN') || BOT_TOKEN === '' || BOT_TOKEN === 'توکن_ربات_تلگرام') {
+// توکن و کانال از پنل ادمین (دیتابیس) خوانده می‌شوند و در صورت نبودن،
+// از ثابت‌های config.php — مثل بقیه‌ی مسیرهای انتشار.
+$tgToken = function_exists('melkinoTelegramToken')
+    ? (string)melkinoTelegramToken()
+    : (defined('BOT_TOKEN') ? (string)BOT_TOKEN : '');
+$tgChannel = function_exists('melkinoChannelId')
+    ? (string)melkinoChannelId()
+    : (defined('CHANNEL_ID') ? (string)CHANNEL_ID : '');
+
+if ($tgToken === '' || $tgToken === 'توکن_ربات_تلگرام') {
     echo json_encode([
         'success' => false,
-        'message' => 'توکن ربات تلگرام تنظیم نشده. در فایل config.php مقدار BOT_TOKEN را با توکن واقعی بات جایگزین کن.',
+        'message' => 'توکن ربات تلگرام تنظیم نشده. از تب «ربات و کانال» پنل ادمین آن را وارد و ذخیره کن.',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-if (!defined('CHANNEL_ID') || CHANNEL_ID === '' || CHANNEL_ID === '@آیدی_کانال') {
+if ($tgChannel === '' || $tgChannel === '@آیدی_کانال') {
     echo json_encode([
         'success' => false,
-        'message' => 'آیدی گروه/کانال تلگرام تنظیم نشده. در فایل config.php مقدار CHANNEL_ID را با آیدی واقعی گروه/کانال جایگزین کن.',
+        'message' => 'آیدی گروه/کانال تلگرام تنظیم نشده. از تب «ربات و کانال» پنل ادمین آن را وارد و ذخیره کن.',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -73,89 +84,21 @@ if (!$ad) {
 
 /* =========================================================
    ساخت متن پیام از روی اطلاعات آگهی
+   =========================================================
+   از سازنده‌ی مشترک استفاده می‌شود تا انتخاب فیلدها و متن ثابت
+   بالا/پایین آگهی (تنظیم‌شده در تب «ربات و کانال») اعمال شود و خروجی
+   همه‌ی مسیرهای انتشار (سرور/مرورگر، تلگرام/بله) یکسان باشد.
    ========================================================= */
 
-function tgEsc(string $text): string
-{
-    // فرار دادن کاراکترهای ویژه‌ی HTML parse mode تلگرام
-    return str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $text);
-}
-
-function tgMoney($value): string
-{
-    $raw = trim((string)$value);
-    if ($raw === '' || !is_numeric(str_replace(',', '', $raw))) return '';
-    return number_format((float)str_replace(',', '', $raw), 0, '.', ',') . ' تومان';
-}
-
-$lines = [];
-
-$lines[] = '🏠 <b>' . tgEsc((string)($ad['title'] ?: 'آگهی ملک')) . '</b>';
-$lines[] = '';
-$lines[] = '📌 نوع معامله: ' . tgEsc((string)($ad['transaction_type'] ?: '-'));
-$lines[] = '🏷️ نوع ملک: ' . tgEsc((string)($ad['property_type'] ?: '-'));
-
-if (!empty($ad['location'])) {
-    $lines[] = '📍 موقعیت: ' . tgEsc((string)$ad['location']);
-}
-if (!empty($ad['address'])) {
-    $lines[] = '🗺️ آدرس: ' . tgEsc((string)$ad['address']);
-}
-if (!empty($ad['area'])) {
-    $lines[] = '📐 متراژ: ' . tgEsc((string)$ad['area']) . ' متر';
-}
-if (!empty($ad['rooms'])) {
-    $lines[] = '🛏️ تعداد اتاق: ' . tgEsc((string)$ad['rooms']);
-}
-if (!empty($ad['floor'])) {
-    $lines[] = '🏢 طبقه: ' . tgEsc((string)$ad['floor']);
-}
-if (!empty($ad['year'])) {
-    $lines[] = '📅 سال ساخت: ' . tgEsc((string)$ad['year']);
-}
-
-$priceHidden = !empty($ad['price_hidden']);
-if (!$priceHidden) {
-    $priceLine = '';
-    if (!empty($ad['price_sell'])) {
-        $priceLine = '💰 قیمت فروش: ' . tgMoney($ad['price_sell']);
-    } elseif (!empty($ad['full_rent_enabled']) && !empty($ad['full_rent'])) {
-        $priceLine = '💰 اجاره کامل: ' . tgMoney($ad['full_rent']);
-    } elseif (!empty($ad['deposit']) || !empty($ad['rent_monthly'])) {
-        $priceLine = '💰 ودیعه: ' . tgMoney($ad['deposit']) . ' | اجاره: ' . tgMoney($ad['rent_monthly']);
-    } elseif (!empty($ad['total_price'])) {
-        $priceLine = '💰 قیمت کل: ' . tgMoney($ad['total_price']);
-    }
-    if ($priceLine !== '') {
-        $lines[] = $priceLine;
-    }
-} else {
-    $lines[] = '💰 قیمت: توافقی (تماس بگیرید)';
-}
-
-if (!empty($ad['description'])) {
-    $lines[] = '';
-    $lines[] = '📝 ' . tgEsc((string)$ad['description']);
-}
-
-$lines[] = '';
-$lines[] = '👤 تماس: ' . tgEsc((string)($ad['last_name'] ?: '-'));
-if (!empty($ad['phone'])) {
-    $lines[] = '📞 شماره تماس: ' . tgEsc((string)$ad['phone']);
-}
-
-$lines[] = '';
-$lines[] = '🔗 کد آگهی: ' . tgEsc((string)$ad['id']);
-
-$messageText = implode("\n", $lines);
+$messageText = melkinoAdMessageText($ad, true, 'telegram');
 
 /* =========================================================
    ارسال به تلگرام
    ========================================================= */
 
-$apiUrl = 'https://api.telegram.org/bot' . BOT_TOKEN . '/sendMessage';
+$apiUrl = 'https://api.telegram.org/bot' . $tgToken . '/sendMessage';
 $postFields = http_build_query([
-    'chat_id' => CHANNEL_ID,
+    'chat_id' => $tgChannel,
     'text' => $messageText,
     'parse_mode' => 'HTML',
 ]);

@@ -35,6 +35,7 @@ if (!function_exists('melkinoBotSetting')) {
 if (!function_exists('melkinoBotSettings')) {
     function melkinoBotSettings(): array
     {
+        $sms = melkinoSmsSettings();
         return [
             'telegram_token'        => melkinoBotSetting('telegram_token'),
             'telegram_channel'      => melkinoBotSetting('telegram_channel', defined('CHANNEL_ID') ? CHANNEL_ID : ''),
@@ -43,8 +44,138 @@ if (!function_exists('melkinoBotSettings')) {
             'bale_channel'          => melkinoBotSetting('bale_channel'),
             'bale_bot_username'     => ltrim(melkinoBotSetting('bale_bot_username'), '@'),
             'http_proxy'            => melkinoBotSetting('http_proxy'),
+            'sms_enabled'           => $sms['enabled'] ? '1' : '0',
+            'sms_api_key'           => $sms['api_key'],
+            'sms_api_url'           => $sms['api_url'],
+            'sms_sender_line'       => $sms['sender_line'],
             'updated_at'            => melkinoBotSetting('updated_at'),
         ];
+    }
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * تنظیمات پنل پیامک
+ * --------------------------------------------------------------------------
+ * اولویت خواندن: مقدار ذخیره‌شده در دیتابیس (پنل ادمین) و در صورت نبودن،
+ * ثابت‌های config.php. اگر ادمین هرگز چیزی در پنل ذخیره نکرده باشد،
+ * فعال‌بودن بر اساس پر بودن ثابت‌هاست (سازگاری با رفتار قبلی).
+ */
+if (!function_exists('melkinoSmsSettings')) {
+    function melkinoSmsSettings(): array
+    {
+        $enabledDb = melkinoBotSetting('sms_enabled', '');
+        if ($enabledDb === '') {
+            $enabled = defined('SMS_API_KEY') && (string)SMS_API_KEY !== ''
+                && defined('SMS_API_URL') && (string)SMS_API_URL !== '';
+        } else {
+            $enabled = $enabledDb === '1';
+        }
+
+        return [
+            'enabled'     => $enabled,
+            'api_key'     => melkinoBotSetting('sms_api_key', defined('SMS_API_KEY') ? (string)SMS_API_KEY : ''),
+            'api_url'     => melkinoBotSetting('sms_api_url', defined('SMS_API_URL') ? (string)SMS_API_URL : ''),
+            'sender_line' => melkinoBotSetting('sms_sender_line', defined('SMS_SENDER_LINE') ? (string)SMS_SENDER_LINE : ''),
+        ];
+    }
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * فیلدهای قابل انتشار آگهی در کانال
+ * --------------------------------------------------------------------------
+ * ادمین برای هر پلتفرم (تلگرام/بله) جداگانه انتخاب می‌کند کدام فیلدها در
+ * متن پیام منتشرشده بیایند و چه متن ثابتی بالا/پایین همه‌ی آگهی‌ها باشد.
+ */
+if (!function_exists('melkinoPublishFieldDefs')) {
+    function melkinoPublishFieldDefs(): array
+    {
+        return [
+            'title'         => ['emoji' => '🏠', 'label' => 'عنوان آگهی'],
+            'transaction'   => ['emoji' => '📌', 'label' => 'نوع معامله'],
+            'property_type' => ['emoji' => '🏷️', 'label' => 'نوع ملک'],
+            'location'      => ['emoji' => '📍', 'label' => 'موقعیت'],
+            'address'       => ['emoji' => '🗺️', 'label' => 'آدرس'],
+            'area'          => ['emoji' => '📐', 'label' => 'متراژ'],
+            'rooms'         => ['emoji' => '🛏️', 'label' => 'تعداد اتاق'],
+            'floor'         => ['emoji' => '🏢', 'label' => 'طبقه'],
+            'year'          => ['emoji' => '📅', 'label' => 'سال ساخت'],
+            'price'         => ['emoji' => '💰', 'label' => 'قیمت'],
+            'description'   => ['emoji' => '📝', 'label' => 'توضیحات'],
+            'contact'       => ['emoji' => '👤', 'label' => 'نام تماس‌گیرنده'],
+            'phone'         => ['emoji' => '📞', 'label' => 'شماره تماس آگهی'],
+            'consultant'    => ['emoji' => '☎️', 'label' => 'شماره مشاور ملکینو'],
+            'ad_id'         => ['emoji' => '🔗', 'label' => 'کد آگهی'],
+        ];
+    }
+}
+
+if (!function_exists('melkinoPublishPlatform')) {
+    function melkinoPublishPlatform(string $platform): string
+    {
+        return strtolower(trim($platform)) === 'bale' ? 'bale' : 'telegram';
+    }
+}
+
+if (!function_exists('melkinoPublishSettings')) {
+    function melkinoPublishSettings(string $platform): array
+    {
+        global $pdo;
+        $platform = melkinoPublishPlatform($platform);
+        $defaults = array_keys(melkinoPublishFieldDefs());
+        if ($platform === 'bale') {
+            // پیش‌فرض بله: نام و شماره‌ی ثبت‌کننده منتشر نمی‌شود (همان رفتار
+            // قبلی مسیر مستقیم بله)؛ ادمین می‌تواند آن‌ها را فعال کند.
+            $defaults = array_values(array_diff($defaults, ['contact', 'phone']));
+        }
+
+        $fields = $defaults;
+        $header = '';
+        $footer = '';
+
+        if ($pdo instanceof PDO) {
+            try {
+                $stored = dbSettingGet($pdo, 'publish', 'fields_' . $platform, null);
+                if (is_array($stored)) {
+                    // فقط کلیدهای معتبر نگه داشته می‌شوند؛ ترتیب همان ترتیب پیش‌فرض است
+                    $fields = array_values(array_intersect($defaults, $stored));
+                }
+                $header = (string)dbSettingGet($pdo, 'publish', 'header_' . $platform, '');
+                $footer = (string)dbSettingGet($pdo, 'publish', 'footer_' . $platform, '');
+            } catch (Throwable $e) {
+                // در صورت خطا، پیش‌فرض‌ها برگردانده می‌شوند
+            }
+        }
+
+        return ['fields' => $fields, 'header' => $header, 'footer' => $footer];
+    }
+}
+
+if (!function_exists('melkinoSavePublishSettings')) {
+    function melkinoSavePublishSettings(string $platform, array $data): bool
+    {
+        global $pdo;
+        if (!($pdo instanceof PDO)) {
+            return false;
+        }
+
+        $platform = melkinoPublishPlatform($platform);
+        $defaults = array_keys(melkinoPublishFieldDefs());
+        $adminId = !empty($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null;
+
+        $fields = $data['fields'] ?? [];
+        if (!is_array($fields)) {
+            $fields = [];
+        }
+        $fields = array_values(array_intersect($defaults, array_map('strval', $fields)));
+
+        $header = mb_substr(trim((string)($data['header'] ?? '')), 0, 2000);
+        $footer = mb_substr(trim((string)($data['footer'] ?? '')), 0, 2000);
+
+        return dbSettingSet($pdo, 'publish', 'fields_' . $platform, $fields, 'json', $adminId)
+            && dbSettingSet($pdo, 'publish', 'header_' . $platform, $header, 'string', $adminId)
+            && dbSettingSet($pdo, 'publish', 'footer_' . $platform, $footer, 'string', $adminId);
     }
 }
 
@@ -58,14 +189,32 @@ if (!function_exists('melkinoSaveBotSettings')) {
 
         $adminId = !empty($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null;
 
+        // نکته‌ی مهم: ورودیِ خالی برای توکن‌ها/کلید به‌معنی «نگه‌داشتن مقدار
+        // قبلی» است، چون در فرم فقط نسخه‌ی ماسک‌شده نمایش داده می‌شود و خودِ
+        // اینپوت همیشه خالی است. قبلاً هر ذخیره با اینپوت خالی، توکن ذخیره‌شده
+        // را پاک می‌کرد! برای پاک‌کردنِ عمدی، یک خط تیره (-) وارد کن.
+        $keepSecret = function (string $key, string $input) {
+            if ($input === '') {
+                return melkinoBotSetting($key);
+            }
+            if ($input === '-') {
+                return '';
+            }
+            return $input;
+        };
+
         $values = [
-            'telegram_token'        => trim((string)($data['telegram_token'] ?? '')),
+            'telegram_token'        => $keepSecret('telegram_token', trim((string)($data['telegram_token'] ?? ''))),
             'telegram_channel'      => trim((string)($data['telegram_channel'] ?? '')),
             'telegram_bot_username' => ltrim(trim((string)($data['telegram_bot_username'] ?? '')), '@'),
-            'bale_token'            => trim((string)($data['bale_token'] ?? '')),
+            'bale_token'            => $keepSecret('bale_token', trim((string)($data['bale_token'] ?? ''))),
             'bale_channel'          => trim((string)($data['bale_channel'] ?? '')),
             'bale_bot_username'     => ltrim(trim((string)($data['bale_bot_username'] ?? '')), '@'),
             'http_proxy'            => trim((string)($data['http_proxy'] ?? '')),
+            'sms_enabled'           => !empty($data['sms_enabled']) ? '1' : '0',
+            'sms_api_key'           => $keepSecret('sms_api_key', trim((string)($data['sms_api_key'] ?? ''))),
+            'sms_api_url'           => trim((string)($data['sms_api_url'] ?? '')),
+            'sms_sender_line'       => trim((string)($data['sms_sender_line'] ?? '')),
         ];
 
         // اعتبارسنجی سبک
@@ -83,6 +232,9 @@ if (!function_exists('melkinoSaveBotSettings')) {
             }
             if ($k === 'http_proxy' && $v !== '' && !preg_match('#^(https?|socks5h?|socks4)://#i', $v)) {
                 throw new InvalidArgumentException('فرمت پروکسی باید با http:// یا socks5:// شروع شود.');
+            }
+            if ($k === 'sms_api_url' && $v !== '' && !preg_match('#^https?://#i', $v)) {
+                throw new InvalidArgumentException('نشانی API پیامک باید با http:// یا https:// شروع شود.');
             }
         }
 

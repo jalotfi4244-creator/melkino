@@ -9,6 +9,10 @@
 |   ?action=test_telegram    تست اتصال تلگرام
 |   ?action=test_bale        تست اتصال بله
 |   ?action=test_channel     تست دسترسی به کانال
+|   ?action=test_sms         تست ارسال پیامک
+|   ?action=publish_get      دریافت تنظیمات انتشار (فیلدها + متن ثابت)
+|   ?action=publish_save     ذخیره تنظیمات انتشار
+|   ?action=publish_preview  پیش‌نمایش متن انتشار
 |--------------------------------------------------------------------------
 */
 
@@ -24,9 +28,9 @@ if ($melkinoBotAction !== '') {
     switch ($melkinoBotAction) {
         case 'get':
             $settings = melkinoBotSettings();
-            // توکن‌ها فقط به‌صورت ماسک نمایش داده می‌شوند
-            foreach (['telegram_token', 'bale_token'] as $k) {
-                if ($settings[$k] !== '') {
+            // توکن‌ها و کلیدها فقط به‌صورت ماسک نمایش داده می‌شوند
+            foreach (['telegram_token', 'bale_token', 'sms_api_key'] as $k) {
+                if (!empty($settings[$k])) {
                     $settings[$k . '_masked'] = substr($settings[$k], 0, 6) . '••••••' . substr($settings[$k], -4);
                 } else {
                     $settings[$k . '_masked'] = '';
@@ -258,6 +262,94 @@ if ($melkinoBotAction !== '') {
                            . (isset($r['id']) ? ' — شناسه: ' . $r['id'] : ''),
             ]);
 
+        /* ---------------------------------------------------------------
+           تست ارسال پیامک
+        --------------------------------------------------------------- */
+        case 'test_sms':
+            require_once __DIR__ . '/sms.php';
+            $data = melkinoAdminJsonBody();
+            $phone = (string)($data['phone'] ?? '');
+            $phone = strtr($phone, [
+                '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+                '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+            ]);
+            $phone = preg_replace('/\\D/', '', $phone);
+            if (!preg_match('/^09\\d{9}$/', $phone)) {
+                melkinoAdminJson(['success' => false, 'message' => 'شماره موبایل معتبر نیست (فرمت درست: 09123456789).'], 422);
+            }
+            $result = smsSendText($phone, 'تست پنل پیامک ملکینو ✅');
+            melkinoAdminJson($result, $result['success'] ? 200 : 400);
+
+        /* ---------------------------------------------------------------
+           تنظیمات انتشار آگهی در کانال (فیلدها + متن بالا/پایین)
+        --------------------------------------------------------------- */
+        case 'publish_get':
+            $data = melkinoAdminJsonBody();
+            $platform = melkinoPublishPlatform((string)($data['platform'] ?? $_GET['platform'] ?? 'telegram'));
+            melkinoAdminJson([
+                'success'  => true,
+                'platform' => $platform,
+                'defs'     => melkinoPublishFieldDefs(),
+                'settings' => melkinoPublishSettings($platform),
+            ]);
+
+        case 'publish_save':
+            $data = melkinoAdminJsonBody();
+            $platform = melkinoPublishPlatform((string)($data['platform'] ?? 'telegram'));
+            $ok = melkinoSavePublishSettings($platform, $data);
+            melkinoAdminJson([
+                'success' => $ok,
+                'message' => $ok ? 'تنظیمات انتشار ذخیره شد.' : 'ذخیره‌سازی ناموفق بود.',
+            ], $ok ? 200 : 500);
+
+        /* ---------------------------------------------------------------
+           پیش‌نمایش متن انتشار با تنظیمات فعلی (روی جدیدترین آگهی منتشرشده،
+           یا یک آگهی نمونه اگر هنوز آگهی‌ای وجود ندارد)
+        --------------------------------------------------------------- */
+        case 'publish_preview':
+            $data = melkinoAdminJsonBody();
+            $platform = melkinoPublishPlatform((string)($data['platform'] ?? $_GET['platform'] ?? 'telegram'));
+            global $pdo;
+            $ad = null;
+            if ($pdo instanceof PDO) {
+                try {
+                    $st = $pdo->query("SELECT * FROM ads WHERE status = 'published' ORDER BY created_at DESC, id DESC LIMIT 1");
+                    $ad = $st ? $st->fetch(PDO::FETCH_ASSOC) : null;
+                } catch (Throwable $e) {
+                    $ad = null;
+                }
+            }
+            $isSample = false;
+            if (!$ad) {
+                $isSample = true;
+                $ad = [
+                    'id' => 'AD-0000-0000',
+                    'title' => 'آپارتمان ۱۲۰ متری در مرکز شهر',
+                    'transaction_type' => 'فروش',
+                    'property_type' => 'آپارتمان',
+                    'location' => 'خیابان امام',
+                    'address' => 'خیابان امام، کوچه ۵',
+                    'area' => '120',
+                    'rooms' => '3',
+                    'floor' => '2',
+                    'year' => '1398',
+                    'price_sell' => '2800000000',
+                    'description' => 'آپارتمانی نورگیر با دسترسی عالی.',
+                    'last_name' => 'نام نمونه',
+                    'phone' => '09123456789',
+                ];
+            }
+            $text = function_exists('melkinoAdMessageText')
+                ? melkinoAdMessageText($ad, $platform !== 'bale', $platform)
+                : (string)($ad['title'] ?? '');
+            melkinoAdminJson([
+                'success'   => true,
+                'platform'  => $platform,
+                'text'      => $text,
+                'is_sample' => $isSample,
+                'ad_title'  => (string)($ad['title'] ?? ''),
+            ]);
+
         default:
             melkinoAdminJson(['success' => false, 'message' => 'عمل نامعتبر'], 400);
     }
@@ -305,7 +397,7 @@ if ($melkinoBotAction !== '') {
     <div style="padding:0 16px 16px;">
         <label class="admin-field-label">توکن ربات بله</label>
         <input type="text" id="botBaleToken" class="admin-input" dir="ltr" placeholder="387417012:..." autocomplete="off">
-        <div class="admin-field-help">از پنل توسعه‌دهندگان بله (یا @botfather_bale) دریافت می‌شود.</div>
+        <div class="admin-field-help">از پنل توسعه‌دهندگان بله (یا @botfather_bale) دریافت می‌شود. خالی بگذار تا مقدار قبلی حفظ شود؛ برای پاک‌کردن «-» وارد کن.</div>
 
         <label class="admin-field-label">شناسه کانال بله</label>
         <input type="text" id="botBaleChannel" class="admin-input" dir="ltr" placeholder="@melkino">
@@ -365,12 +457,104 @@ if ($melkinoBotAction !== '') {
 </div>
 
 <div class="admin-card">
+    <div class="card-header">
+        <span class="card-title">📱 پنل پیامک</span>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);cursor:pointer;">
+            <input type="checkbox" id="smsEnabled" style="width:18px;height:18px;accent-color:var(--primary);">
+            فعال باشد
+        </label>
+    </div>
+
+    <div style="padding:0 16px 16px;">
+        <div class="admin-field-help" style="margin-bottom:10px;">
+            اگر پنل پیامک غیرفعال باشد یا تنظیم نشده باشد، کد ورود به‌جای پیامک، مستقیم روی صفحه نمایش داده می‌شود.
+        </div>
+
+        <label class="admin-field-label">نشانی API سرویس پیامک</label>
+        <input type="text" id="smsApiUrl" class="admin-input" dir="ltr" placeholder="https://..." autocomplete="off">
+        <div class="admin-field-help">نشانی وب‌سرویس ارسال پیامک.</div>
+
+        <label class="admin-field-label">کلید API</label>
+        <input type="text" id="smsApiKey" class="admin-input" dir="ltr" placeholder="..." autocomplete="off">
+        <div class="admin-field-help">خالی بگذار تا مقدار قبلی حفظ شود؛ برای پاک‌کردن «-» وارد کن.</div>
+
+        <label class="admin-field-label">شماره خط ارسال‌کننده</label>
+        <input type="text" id="smsSenderLine" class="admin-input" dir="ltr" placeholder="3000...">
+        <div class="admin-field-help">شماره خطی که پیامک از طرف آن ارسال می‌شود.</div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center;">
+            <input type="text" id="smsTestPhone" class="admin-input" dir="ltr" placeholder="09123456789" style="max-width:170px;">
+            <button type="button" class="btn-secondary" style="padding:8px 16px;font-size:13px;" onclick="testSmsSend()">
+                📤 ارسال پیامک تست
+            </button>
+        </div>
+        <div class="admin-field-help" style="margin-top:6px">ابتدا تنظیمات را با دکمه‌ی پایین صفحه ذخیره کن، بعد تست بگیر.</div>
+    </div>
+</div>
+
+<div class="admin-card">
     <div class="card-actions" style="padding:16px;">
         <button type="button" class="btn-primary" onclick="saveBotSettings()">💾 ذخیره تنظیمات ربات‌ها</button>
         <span id="botSettingsStatus" class="admin-status-msg"></span>
     </div>
     <div style="padding:0 16px 16px;color:var(--text-muted);font-size:12px;line-height:1.9;">
         توکن‌ها در دیتابیس ذخیره می‌شوند و در خروجی‌های این صفحه هیچ‌وقت به‌صورت کامل نمایش داده نمی‌شوند.
+    </div>
+</div>
+
+<div class="admin-card">
+    <div class="card-header">
+        <span class="card-title">📝 محتوای انتشار در کانال تلگرام</span>
+    </div>
+
+    <div style="padding:0 16px 16px;">
+        <div class="admin-field-help" style="margin-bottom:8px;">
+            انتخاب کن کدام فیلدهای آگهی در پیام کانال تلگرام بیاید:
+        </div>
+        <div id="publishFieldsTelegram" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:12px;">
+            <span style="font-size:12px;color:var(--text-muted);">در حال بارگذاری…</span>
+        </div>
+
+        <label class="admin-field-label">متن ثابت بالای آگهی‌ها (اختیاری)</label>
+        <textarea id="publishHeaderTelegram" rows="2" class="admin-input" style="width:100%;box-sizing:border-box;padding:10px;font-family:inherit;font-size:13px;resize:vertical;" placeholder="این متن بالای همه‌ی آگهی‌های کانال نمایش داده می‌شود"></textarea>
+
+        <label class="admin-field-label" style="margin-top:10px;display:block;">متن ثابت پایین آگهی‌ها (اختیاری)</label>
+        <textarea id="publishFooterTelegram" rows="2" class="admin-input" style="width:100%;box-sizing:border-box;padding:10px;font-family:inherit;font-size:13px;resize:vertical;" placeholder="این متن پایین همه‌ی آگهی‌های کانال نمایش داده می‌شود"></textarea>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center;">
+            <button type="button" class="btn-primary" style="padding:8px 16px;font-size:13px;" onclick="savePublishSettings('telegram')">💾 ذخیره</button>
+            <button type="button" class="btn-secondary" style="padding:8px 16px;font-size:13px;" onclick="previewPublish('telegram')">👁️ پیش‌نمایش</button>
+            <span id="publishStatusTelegram" class="admin-status-msg"></span>
+        </div>
+        <pre id="publishPreviewTelegram" dir="auto" style="display:none;white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:12px;line-height:2;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:10px;max-height:320px;overflow:auto;"></pre>
+    </div>
+</div>
+
+<div class="admin-card">
+    <div class="card-header">
+        <span class="card-title">📝 محتوای انتشار در کانال بله</span>
+    </div>
+
+    <div style="padding:0 16px 16px;">
+        <div class="admin-field-help" style="margin-bottom:8px;">
+            انتخاب کن کدام فیلدهای آگهی در پیام کانال بله بیاید:
+        </div>
+        <div id="publishFieldsBale" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:12px;">
+            <span style="font-size:12px;color:var(--text-muted);">در حال بارگذاری…</span>
+        </div>
+
+        <label class="admin-field-label">متن ثابت بالای آگهی‌ها (اختیاری)</label>
+        <textarea id="publishHeaderBale" rows="2" class="admin-input" style="width:100%;box-sizing:border-box;padding:10px;font-family:inherit;font-size:13px;resize:vertical;" placeholder="این متن بالای همه‌ی آگهی‌های کانال نمایش داده می‌شود"></textarea>
+
+        <label class="admin-field-label" style="margin-top:10px;display:block;">متن ثابت پایین آگهی‌ها (اختیاری)</label>
+        <textarea id="publishFooterBale" rows="2" class="admin-input" style="width:100%;box-sizing:border-box;padding:10px;font-family:inherit;font-size:13px;resize:vertical;" placeholder="این متن پایین همه‌ی آگهی‌های کانال نمایش داده می‌شود"></textarea>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center;">
+            <button type="button" class="btn-primary" style="padding:8px 16px;font-size:13px;" onclick="savePublishSettings('bale')">💾 ذخیره</button>
+            <button type="button" class="btn-secondary" style="padding:8px 16px;font-size:13px;" onclick="previewPublish('bale')">👁️ پیش‌نمایش</button>
+            <span id="publishStatusBale" class="admin-status-msg"></span>
+        </div>
+        <pre id="publishPreviewBale" dir="auto" style="display:none;white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:12px;line-height:2;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:10px;max-height:320px;overflow:auto;"></pre>
     </div>
 </div>
 

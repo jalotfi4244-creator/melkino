@@ -49,17 +49,26 @@
             set('botBaleChannel', s.bale_channel);
             set('botBaleUsername', s.bale_bot_username);
             set('botProxy', s.http_proxy);
+            set('smsApiUrl', s.sms_api_url);
+            set('smsSenderLine', s.sms_sender_line);
             const tg = document.getElementById('botTelegramToken');
             const ba = document.getElementById('botBaleToken');
+            const sk = document.getElementById('smsApiKey');
             if (tg) tg.placeholder = s.telegram_token_masked || 'تنظیم نشده';
             if (ba) ba.placeholder = s.bale_token_masked || 'تنظیم نشده';
+            if (sk) sk.placeholder = s.sms_api_key_masked || 'تنظیم نشده';
+            const se = document.getElementById('smsEnabled');
+            if (se) se.checked = String(s.sms_enabled) === '1';
         } catch (e) {
             setStatus('botSettingsStatus', 'خطا در دریافت تنظیمات.', false);
         }
+        try { loadPublishSettings('telegram'); } catch (e) {}
+        try { loadPublishSettings('bale'); } catch (e) {}
     };
 
     window.saveBotSettings = async function () {
         const val = id => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
+        const se = document.getElementById('smsEnabled');
         setStatus('botSettingsStatus', 'در حال ذخیره...', null);
         try {
             const data = await postJson('admin-bots.php?action=save', {
@@ -69,12 +78,121 @@
                 bale_token: val('botBaleToken'),
                 bale_channel: val('botBaleChannel'),
                 bale_bot_username: val('botBaleUsername'),
-                http_proxy: val('botProxy')
+                http_proxy: val('botProxy'),
+                sms_enabled: se && se.checked ? 1 : 0,
+                sms_api_key: val('smsApiKey'),
+                sms_api_url: val('smsApiUrl'),
+                sms_sender_line: val('smsSenderLine')
             });
             setStatus('botSettingsStatus', data.message || '', data.success);
             if (data.success) loadBotSettings();
         } catch (e) {
             setStatus('botSettingsStatus', 'خطا در ارتباط با سرور.', false);
+        }
+    };
+
+    window.testSmsSend = async function () {
+        const phoneEl = document.getElementById('smsTestPhone');
+        const phone = phoneEl ? phoneEl.value.trim() : '';
+        setStatus('botSettingsStatus', 'در حال ارسال پیامک تست...', null);
+        try {
+            const data = await postJson('admin-bots.php?action=test_sms', { phone });
+            setStatus('botSettingsStatus', data.message || '', data.success);
+        } catch (e) {
+            setStatus('botSettingsStatus', 'خطا در ارتباط با سرور.', false);
+        }
+    };
+
+    /* =====================================================
+       محتوای انتشار در کانال (فیلدها + متن ثابت بالا/پایین)
+       ===================================================== */
+
+    function publishIds(platform) {
+        const cap = platform === 'bale' ? 'Bale' : 'Telegram';
+        return {
+            box: 'publishFields' + cap,
+            header: 'publishHeader' + cap,
+            footer: 'publishFooter' + cap,
+            status: 'publishStatus' + cap,
+            preview: 'publishPreview' + cap
+        };
+    }
+
+    async function loadPublishSettings(platform) {
+        const ids = publishIds(platform);
+        const box = document.getElementById(ids.box);
+        try {
+            const data = await postJson('admin-bots.php?action=publish_get', { platform });
+            if (!data || !data.success) {
+                if (box) box.innerHTML = '<span style="font-size:12px;color:var(--danger);">خطا در بارگذاری.</span>';
+                return;
+            }
+            const defs = data.defs || {};
+            const on = Array.isArray((data.settings || {}).fields) ? (data.settings.fields) : Object.keys(defs);
+            if (box) {
+                box.innerHTML = Object.keys(defs).map(key => {
+                    const d = defs[key] || {};
+                    const checked = on.indexOf(key) !== -1 ? 'checked' : '';
+                    return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-primary);cursor:pointer;border:1px solid var(--border);border-radius:10px;padding:8px 10px;">'
+                        + '<input type="checkbox" data-publish-field="' + esc(key) + '" ' + checked + ' style="width:16px;height:16px;accent-color:var(--primary);">'
+                        + '<span>' + esc(d.emoji || '') + ' ' + esc(d.label || key) + '</span>'
+                        + '</label>';
+                }).join('');
+            }
+            const h = document.getElementById(ids.header);
+            const f = document.getElementById(ids.footer);
+            if (h) h.value = (data.settings || {}).header || '';
+            if (f) f.value = (data.settings || {}).footer || '';
+        } catch (e) {
+            if (box) box.innerHTML = '<span style="font-size:12px;color:var(--danger);">خطا در بارگذاری.</span>';
+        }
+    }
+
+    window.savePublishSettings = async function (platform) {
+        const ids = publishIds(platform === 'bale' ? 'bale' : 'telegram');
+        platform = platform === 'bale' ? 'bale' : 'telegram';
+        const box = document.getElementById(ids.box);
+        const fields = [];
+        if (box) {
+            box.querySelectorAll('[data-publish-field]:checked').forEach(el => {
+                fields.push(el.getAttribute('data-publish-field'));
+            });
+        }
+        const h = document.getElementById(ids.header);
+        const f = document.getElementById(ids.footer);
+        setStatus(ids.status, 'در حال ذخیره...', null);
+        try {
+            const data = await postJson('admin-bots.php?action=publish_save', {
+                platform,
+                fields,
+                header: h ? h.value : '',
+                footer: f ? f.value : ''
+            });
+            setStatus(ids.status, data.message || '', data.success);
+        } catch (e) {
+            setStatus(ids.status, 'خطا در ارتباط با سرور.', false);
+        }
+    };
+
+    window.previewPublish = async function (platform) {
+        const ids = publishIds(platform === 'bale' ? 'bale' : 'telegram');
+        platform = platform === 'bale' ? 'bale' : 'telegram';
+        const pre = document.getElementById(ids.preview);
+        setStatus(ids.status, 'در حال ساخت پیش‌نمایش...', null);
+        try {
+            const data = await postJson('admin-bots.php?action=publish_preview', { platform });
+            if (!data || !data.success) {
+                setStatus(ids.status, (data && data.message) || 'خطا در ساخت پیش‌نمایش.', false);
+                return;
+            }
+            setStatus(ids.status, '', null);
+            if (pre) {
+                pre.style.display = 'block';
+                pre.textContent = (data.is_sample ? '— پیش‌نمایش روی آگهی نمونه (هنوز آگهی منتشرشده‌ای نیست) —\n\n' : '')
+                    + (data.text || '(متن خالی)');
+            }
+        } catch (e) {
+            setStatus(ids.status, 'خطا در ارتباط با سرور.', false);
         }
     };
 

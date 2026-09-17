@@ -16,6 +16,7 @@
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/db_helpers.php';
 require_once __DIR__ . '/bot-settings.php';
 
 if (empty($_SESSION['is_admin'])) {
@@ -154,7 +155,7 @@ if (!empty($ad['description'])) {
  *   (برای بله از parse_mode استفاده نمی‌کنیم، پس html=false است)
  */
 $messageText = function_exists('melkinoAdMessageText')
-    ? melkinoAdMessageText($ad, false)
+    ? melkinoAdMessageText($ad, false, 'bale')
     : implode("\n", $lines);
 
 if (!function_exists('melkinoAdMessageText')) {
