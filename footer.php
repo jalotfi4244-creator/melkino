@@ -157,5 +157,8 @@
     })();
     </script>
 
+    <!-- نمایش مبلغ به حروف زیر فیلدهای قیمت -->
+    <script src="price-words.js"></script>
+
 </body>
 </html>

@@ -2834,3 +2834,14 @@ textarea:focus-visible {
             none !important;
     }
 }
+
+/* =========================================================
+   PRICE WORDS (amount in Persian words under price inputs)
+   ========================================================= */
+
+.price-words {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.8;
+}
