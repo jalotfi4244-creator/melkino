@@ -10,6 +10,11 @@ ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db_helpers.php';
+require_once __DIR__ . '/auth.php';
+
+// ثبت ملک فقط برای کاربرانی مجاز است که با تلگرام یا بله وارد شده باشند.
+melkinoRequireLogin();
+
 
 
 // ==============================================
@@ -97,7 +102,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'upload_images') {
 // ==============================================
 // فرم ثبت ملک - مخصوص ویلا
 // ==============================================
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_property'])) {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['submit_property'])) {
     
     // دریافت اطلاعات از فرم (از فیلدهای مخفی)
     // قبلاً این مقدار از $_SESSION['reg_telegram_id'] خونده می‌شد که هیچ‌وقت
@@ -340,7 +345,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_property'])) {
     exit;
 }
 
-require_once 'header.php';
+require_once __DIR__ . '/header.php';
 ?>
 <style>
     .main-content { flex: 1; overflow-y: auto; background: var(--bg); display: flex; flex-direction: column; padding-bottom: 75px; }
@@ -657,8 +662,9 @@ require_once 'header.php';
     // ==============================================
     document.addEventListener('DOMContentLoaded', function() {
         const gender = sessionStorage.getItem('reg_gender') || 'آقا';
-        const lastName = sessionStorage.getItem('reg_last_name') || '';
-        const phone = sessionStorage.getItem('reg_phone') || '';
+        const MELKINO_P = window.MELKINO_PROFILE || {};
+        const lastName = sessionStorage.getItem('reg_last_name') || (MELKINO_P.logged_in ? (MELKINO_P.name || '') : '');
+        const phone = sessionStorage.getItem('reg_phone') || (MELKINO_P.logged_in ? (MELKINO_P.phone || '') : '');
         const telegramId = sessionStorage.getItem('reg_telegram_id') || '';
         const transactionType = sessionStorage.getItem('reg_transaction_type') || 'فروش';
         
@@ -670,9 +676,17 @@ require_once 'header.php';
         
         console.log('اطلاعات کاربر:', { gender, lastName, phone, transactionType });
         
-        if (!lastName || !phone) {
-            alert('لطفاً ابتدا اطلاعات تماس خود را در مرحله اول ثبت کنید.');
-            window.location.href = 'register-step1.php';
+        // اطلاعات تماس در خودِ این صفحه نمایش داده می‌شود و قابل ویرایش است،
+        // بنابراین کاربر دیگر به مرحله‌ی اول بازگردانده نمی‌شود و می‌تواند
+        // نام/شماره‌ای را که در سیستم نیست یا اشتباه است، خودش وارد کند.
+        if (typeof window.melkinoContactCard === 'function') {
+            window.melkinoContactCard({
+                formId: 'propertyForm',
+                nameId: 'hidden_last_name',
+                phoneId: 'hidden_phone',
+                name: lastName,
+                phone: phone
+            });
         }
         
         // ==============================================
@@ -1149,4 +1163,4 @@ require_once 'header.php';
         }
     });
 </script>
-<?php require_once 'footer.php'; ?>
+<?php require_once __DIR__ . '/footer.php'; ?>

@@ -56,5 +56,106 @@
     });
     </script>
 
+    <!-- =========================================================
+         تزریق تبلیغ‌ها بین کارت‌ها در صفحاتی که با JS رندر می‌شوند
+         ========================================================= -->
+    <script>
+    (function () {
+        var page = (location.pathname.split('/').pop() || '').toLowerCase();
+        var placementMap = {
+            'properties.php': 'properties',
+            'search-results.php': 'search',
+            'vip.php': 'vip',
+            'home.php': 'home',
+            'index.php': 'home'
+        };
+        var placement = placementMap[page];
+        if (!placement || placement === 'home') return; // خانه به‌صورت سروری تزریق می‌شود
+
+        var selectors = ['#propertiesList', '#adsListContainer', '#vipList', '#adsList', '[data-ads-container]'];
+
+        function findContainer() {
+            for (var i = 0; i < selectors.length; i++) {
+                var el = document.querySelector(selectors[i]);
+                if (el) return el;
+            }
+            return null;
+        }
+
+        function buildSlot(promo) {
+            var slot = document.createElement('div');
+            slot.setAttribute('data-promo-slot', '');
+            slot.setAttribute('data-promo-id', String(promo.id));
+            slot.innerHTML = promo.html;
+
+            var link = slot.querySelector('.promo-cta');
+            if (link) {
+                // ثبت کلیک: ابتدا به promotion-click.php می‌رویم و سپس به مقصد
+                var destination = link.getAttribute('href') || '';
+                if (destination && destination.indexOf('#') !== 0) {
+                    link.setAttribute('href', 'promotion-click.php?id=' + encodeURIComponent(promo.id));
+                    link.setAttribute('target', '_blank');
+                    link.setAttribute('rel', 'noopener nofollow');
+                }
+            }
+            return slot;
+        }
+
+        function inject(container, promos) {
+            if (!container || !promos || !promos.length) return;
+
+            // پاک‌سازی تزریق‌های قبلی (برای رندر دوباره بعد از فیلتر)
+            var old = container.querySelectorAll('[data-promo-slot]');
+            for (var i = 0; i < old.length; i++) old[i].remove();
+
+            var children = Array.prototype.slice.call(container.children);
+            var cardIndex = 0;
+
+            for (var c = 0; c < children.length; c++) {
+                var card = children[c];
+                if (card.getAttribute('data-promo-slot') !== null) continue;
+                cardIndex++;
+
+                for (var p = 0; p < promos.length; p++) {
+                    var promo = promos[p];
+                    var first = Math.max(1, promo.position_after || 3);
+                    var repeat = promo.repeat_every || 0;
+                    var show = (cardIndex === first);
+                    if (!show && repeat > 0 && cardIndex > first) {
+                        show = ((cardIndex - first) % repeat) === 0;
+                    }
+                    if (show && card.parentNode) {
+                        card.parentNode.insertBefore(buildSlot(promo), card.nextSibling);
+                    }
+                }
+            }
+        }
+
+        fetch('promotions-feed.php?placement=' + encodeURIComponent(placement), { cache: 'no-store' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (!data || !data.success || !data.promotions || !data.promotions.length) return;
+
+                var promos = data.promotions;
+                var container = findContainer();
+                if (container) inject(container, promos);
+
+                // رندر دوباره بعد از فیلتر/اسکرول
+                var timer = null;
+                var observer = new MutationObserver(function () {
+                    clearTimeout(timer);
+                    timer = setTimeout(function () {
+                        var current = findContainer();
+                        if (current) inject(current, promos);
+                    }, 400);
+                });
+                if (container) {
+                    observer.observe(container, { childList: true, subtree: false });
+                }
+            })
+            .catch(function () { /* تبلیغ اختیاری است */ });
+    })();
+    </script>
+
 </body>
 </html>

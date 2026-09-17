@@ -3,6 +3,7 @@ session_start();
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db_helpers.php';
+require_once __DIR__ . '/auth.php';
 // نکته: قبلاً این فایل db_helpers.php را require نمی‌کرد؛ یعنی
 // melkinoUpsertUser() اصلاً تعریف نشده بود و هر فراخوانی این
 // endpoint با خطای «تابع تعریف‌نشده» رد می‌خورد.
@@ -13,7 +14,29 @@ if (($_GET['action'] ?? '') === 'list') {
         echo json_encode(['success' => false, 'message' => 'دسترسی غیرمجاز'], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    $rows = $pdo->query("SELECT id,telegram_id,username,name,phone,is_active,first_login,last_login,login_count,created_at FROM users ORDER BY last_login DESC")->fetchAll(PDO::FETCH_ASSOC);
+    // ستون‌های پروفایل را در صورت نیاز اضافه می‌کنیم (فقط اگر نباشند)
+    if (function_exists('melkinoEnsureUserProfileColumns')) {
+        melkinoEnsureUserProfileColumns();
+    }
+
+    // تلاش برای خواندن تمام ستون‌ها؛ در صورت نبودِ ستونی، به کوئری ساده برمی‌گردیم
+    try {
+        $rows = $pdo->query(
+            "SELECT id, telegram_id, bale_id, username, name, phone, is_active,
+                    first_login, last_login, login_count, created_at,
+                    last_ip, last_platform, user_agent, photo_url, language_code
+               FROM users
+              ORDER BY last_login DESC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        $rows = $pdo->query(
+            "SELECT id, telegram_id, username, name, phone, is_active,
+                    first_login, last_login, login_count, created_at
+               FROM users
+              ORDER BY last_login DESC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     echo json_encode(['success' => true, 'users' => $rows], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -29,13 +52,17 @@ if (($_GET['action'] ?? '') === 'history') {
         echo json_encode(['success' => false, 'message' => 'شناسه نامعتبر'], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    $st = $pdo->prepare("SELECT id,telegram_id,username,name,ip_address,user_agent,created_at FROM login_events WHERE user_id=? ORDER BY created_at DESC LIMIT 200");
+    try {
+        $st = $pdo->prepare("SELECT id,telegram_id,bale_id,username,name,ip_address,user_agent,platform,created_at FROM login_events WHERE user_id=? ORDER BY created_at DESC LIMIT 200");
+    } catch (Throwable $e) {
+        $st = $pdo->prepare("SELECT id,telegram_id,username,name,ip_address,user_agent,created_at FROM login_events WHERE user_id=? ORDER BY created_at DESC LIMIT 200");
+    }
     $st->execute([$uid]);
     echo json_encode(['success' => true, 'events' => $st->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => 'روش مجاز نیست'], JSON_UNESCAPED_UNICODE);
     exit;

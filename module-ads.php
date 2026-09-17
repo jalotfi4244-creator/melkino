@@ -5,7 +5,20 @@
 
 /* =========================================================
    توابع کمکی آگهی‌ها (قبلاً در admin-panel.php بودند)
+   =========================================================
+
+   توجه: در حال حاضر این ماژول هیچ‌جا include نمی‌شود و همه‌ی
+   توابع آن عیناً داخل admin-panel.php هم وجود دارند. اگر روزی
+   هر دو با هم لود شوند، خطای مرگبار «cannot redeclare function»
+   رخ می‌دهد. این محافظ جلوی آن را می‌گیرد (در فایلِ include شده،
+   دستور return در سطح بالا ادامه‌ی لود شدن فایل را متوقف می‌کند).
+   راه‌حل درست: توابع را از admin-panel.php حذف و این فایل را
+   require_once کنید.
    ========================================================= */
+
+if (function_exists('dbCleanNumber')) {
+    return;
+}
 
 function dbCleanNumber($value): ?float {
     if ($value === null || $value === '') return null;
@@ -308,7 +321,7 @@ function getAdsData($pdo, $isMockMode) {
 
 function handleAdsPostRequests($pdo) {
     // ====== ویرایش‌های کاربران: فهرست/تأیید/رد ======
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_revision_action'])) {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['user_revision_action'])) {
         header('Content-Type: application/json; charset=utf-8');
         $a = trim((string)$_POST['user_revision_action']);
         $rid = (int)($_POST['revision_id'] ?? 0);
@@ -349,7 +362,7 @@ function handleAdsPostRequests($pdo) {
     }
 
     // ====== ذخیره تغییرات آگهی‌ها در MySQL ======
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_GET['ad_db_action'] ?? $_POST['ad_db_action'] ?? '') === 'bulk_sync') {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_GET['ad_db_action'] ?? $_POST['ad_db_action'] ?? '') === 'bulk_sync') {
         header('Content-Type: application/json; charset=utf-8');
         try {
             $payload = json_decode((string)file_get_contents('php://input'), true);

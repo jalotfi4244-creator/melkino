@@ -16,7 +16,19 @@
 // - در فیلترهای جستجو برای سرمایه‌گذاری فقط حداقل و حداکثر قیمت نمایش داده می‌شود
 // ==============================================
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// =========================================================
+// اتصال و نشست باید پیش از هر چیزی بارگذاری شود.
+// قبلاً فایل ابتدا $_SESSION را می‌خواند و بعد (در میانه‌ی فایل)
+// config.php را لود می‌کرد؛ در نتیجه نشست اصلاً شروع نشده بود و
+// هویت کاربر همیشه خالی می‌ماند (درخواست بدون مالک ذخیره می‌شد).
+// =========================================================
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/auth.php';
+
+// ثبت درخواست ملک فقط برای کاربران واردشده (تلگرام یا بله) مجاز است.
+melkinoRequireLogin();
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
     // =========================================================
     // درخواست ملکینو: ذخیره درخواست + تولید کد رهگیری + تطبیق
@@ -2574,7 +2586,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-require_once 'header.php';
+require_once __DIR__ . '/header.php';
 ?>
 
 <style>
@@ -3046,7 +3058,7 @@ input[type="checkbox"]{
 <script src="https://cdn.jsdelivr.net/npm/persian-date@1.0.0/dist/persian-date.min.js"></script>
 
 <link
-    rel="stylesheet"
+    rel="stylesheet" media="print" onload="this.media='all'"
     href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.min.css"
 >
 
@@ -7018,4 +7030,4 @@ document.addEventListener(
 
 </script>
 
-<?php require_once 'footer.php'; ?>
+<?php require_once __DIR__ . '/footer.php'; ?>

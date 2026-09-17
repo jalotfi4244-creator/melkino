@@ -28,12 +28,24 @@ if (!function_exists('melkinoVerifyMiniAppInitData')) {
         }
 
         parse_str($initData, $parsed);
-        if (!is_array($parsed) || empty($parsed['hash']) || empty($parsed['user'])) {
+        if (!is_array($parsed) || empty($parsed['user'])) {
             return null;
         }
 
-        $receivedHash = (string)$parsed['hash'];
-        unset($parsed['hash']);
+        // تلگرام امضا را در پارامتر hash می‌فرستد؛ بعضی نسخه‌های بله به‌جای آن
+        // از signature استفاده می‌کنند. هر دو پشتیبانی می‌شوند.
+        $receivedHash = '';
+        if (!empty($parsed['hash'])) {
+            $receivedHash = (string)$parsed['hash'];
+            unset($parsed['hash']);
+        } elseif (!empty($parsed['signature'])) {
+            $receivedHash = (string)$parsed['signature'];
+            unset($parsed['signature']);
+        }
+
+        if ($receivedHash === '') {
+            return null;
+        }
 
         $pairs = [];
         foreach ($parsed as $key => $value) {
@@ -72,20 +84,22 @@ if (!function_exists('melkinoVerifyMiniAppInitData')) {
 if (!function_exists('melkinoVerifyTelegramInitData')) {
     function melkinoVerifyTelegramInitData(string $initData): ?array
     {
-        if (!defined('BOT_TOKEN') || BOT_TOKEN === '' || BOT_TOKEN === 'توکن_ربات_تلگرام') {
+        $token = function_exists('melkinoTelegramToken') ? melkinoTelegramToken() : (defined('BOT_TOKEN') ? (string)BOT_TOKEN : '');
+        if ($token === '' || $token === 'توکن_ربات_تلگرام') {
             return null;
         }
-        return melkinoVerifyMiniAppInitData($initData, BOT_TOKEN);
+        return melkinoVerifyMiniAppInitData($initData, $token);
     }
 }
 
 if (!function_exists('melkinoVerifyBaleInitData')) {
     function melkinoVerifyBaleInitData(string $initData): ?array
     {
-        if (!defined('BALE_BOT_TOKEN') || BALE_BOT_TOKEN === '' || BALE_BOT_TOKEN === 'توکن_ربات_بله') {
+        $token = function_exists('melkinoBaleToken') ? melkinoBaleToken() : (defined('BALE_BOT_TOKEN') ? (string)BALE_BOT_TOKEN : '');
+        if ($token === '' || $token === 'توکن_ربات_بله') {
             return null;
         }
-        return melkinoVerifyMiniAppInitData($initData, BALE_BOT_TOKEN);
+        return melkinoVerifyMiniAppInitData($initData, $token);
     }
 }
 
@@ -328,6 +342,211 @@ if (!function_exists('melkinoMaybeSendWelcome')) {
         } catch (Throwable $e) {
             // اگر ثبت اعلان ناموفق بود، مانع از ادامه‌ی کار نمی‌شود
         }
+    }
+}
+
+/**
+ * اطلاعاتِ پایه‌ی کاربرِ واردشده برای «پر کردن خودکارِ فرم‌ها».
+ * خروجی: ['logged_in'=>bool, 'name'=>string, 'phone'=>string]
+ */
+if (!function_exists('melkinoProfilePrefill')) {
+    function melkinoProfilePrefill(): array
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
+            @session_start();
+        }
+
+        $identity = function_exists('melkinoCurrentIdentity') ? melkinoCurrentIdentity() : [];
+        $userId   = $identity['user_id'] ?? null;
+
+        $name  = trim((string)($_SESSION['user_name'] ?? ''));
+        $phone = trim((string)($_SESSION['user_phone'] ?? ''));
+
+        if ($name === '' && !empty($identity['user']['name'])) {
+            $name = trim((string)$identity['user']['name']);
+        }
+        if ($phone === '' && !empty($identity['phone'])) {
+            $phone = trim((string)$identity['phone']);
+        }
+
+        return [
+            'logged_in' => !empty($userId),
+            'name'      => $name,
+            'phone'     => $phone,
+        ];
+    }
+}
+
+/**
+ * متن کاملِ یک آگهی برای ارسال به تلگرام/بله (با فرمت HTML برای تلگرام).
+ * این تابع مشترک است تا متنی که از «سرور» فرستاده می‌شود با متنی که از
+ * «مرورگر» فرستاده می‌شود دقیقاً یکسان باشد.
+ */
+if (!function_exists('melkinoAdMessageText')) {
+    function melkinoAdMessageText(array $ad, bool $html = true): string
+    {
+        $esc = function ($text) use ($html) {
+            $text = (string)$text;
+            return $html ? str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $text) : $text;
+        };
+
+        $money = function ($value) {
+            $raw = trim((string)$value);
+            if ($raw === '' || !is_numeric(str_replace(',', '', $raw))) {
+                return '';
+            }
+            return number_format((float)str_replace(',', '', $raw), 0, '.', ',') . ' تومان';
+        };
+
+        $lines = [];
+        $lines[] = ($html ? '🏠 <b>' : '🏠 ') . $esc($ad['title'] ?: 'آگهی ملک') . ($html ? '</b>' : '');
+        $lines[] = '';
+        $lines[] = '📌 نوع معامله: ' . $esc($ad['transaction_type'] ?: '-');
+        $lines[] = '🏷️ نوع ملک: ' . $esc($ad['property_type'] ?: '-');
+
+        if (!empty($ad['location'])) {
+            $lines[] = '📍 موقعیت: ' . $esc($ad['location']);
+        }
+        if (!empty($ad['address'])) {
+            $lines[] = '🗺️ آدرس: ' . $esc($ad['address']);
+        }
+        if (!empty($ad['area'])) {
+            $lines[] = '📐 متراژ: ' . $esc($ad['area']) . ' متر';
+        }
+        if (!empty($ad['rooms'])) {
+            $lines[] = '🛏️ تعداد اتاق: ' . $esc($ad['rooms']);
+        }
+        if (!empty($ad['floor'])) {
+            $lines[] = '🏢 طبقه: ' . $esc($ad['floor']);
+        }
+        if (!empty($ad['year'])) {
+            $lines[] = '📅 سال ساخت: ' . $esc($ad['year']);
+        }
+
+        if (empty($ad['price_hidden'])) {
+            $priceLine = '';
+            if (!empty($ad['price_sell'])) {
+                $priceLine = '💰 قیمت فروش: ' . $money($ad['price_sell']);
+            } elseif (!empty($ad['full_rent_enabled']) && !empty($ad['full_rent'])) {
+                $priceLine = '💰 اجاره کامل: ' . $money($ad['full_rent']);
+            } elseif (!empty($ad['deposit']) || !empty($ad['rent_monthly'])) {
+                $priceLine = '💰 ودیعه: ' . $money($ad['deposit']) . ' | اجاره: ' . $money($ad['rent_monthly']);
+            } elseif (!empty($ad['total_price'])) {
+                $priceLine = '💰 قیمت کل: ' . $money($ad['total_price']);
+            }
+            if ($priceLine !== '') {
+                $lines[] = $priceLine;
+            }
+        } else {
+            $lines[] = '💰 قیمت: توافقی (تماس بگیرید)';
+        }
+
+        if (!empty($ad['description'])) {
+            $lines[] = '';
+            $lines[] = '📝 ' . $esc($ad['description']);
+        }
+
+        $lines[] = '';
+        $lines[] = '👤 تماس: ' . $esc($ad['last_name'] ?: '-');
+        if (!empty($ad['phone'])) {
+            $lines[] = '📞 شماره تماس: ' . $esc($ad['phone']);
+        }
+
+        $lines[] = '';
+        $lines[] = '🔗 کد آگهی: ' . $esc($ad['id']);
+
+        return implode("\n", $lines);
+    }
+}
+
+/**
+ * نشانیِ کامل و عمومیِ تصویر اصلی آگهی (برای ارسال به تلگرام).
+ * اگر تصویری نباشد یا فایل وجود نداشته باشد، رشته‌ی خالی برمی‌گرداند.
+ */
+if (!function_exists('melkinoAdImageUrl')) {
+    function melkinoAdImageUrl(array $ad): string
+    {
+        global $pdo;
+        if (!($pdo instanceof PDO) || empty($ad['id'])) {
+            return '';
+        }
+
+        $filename = '';
+        try {
+            $st = $pdo->prepare(
+                "SELECT filename FROM images
+                  WHERE ad_id = ? AND is_selected = 1 AND publish_publicly = 1
+                  ORDER BY is_primary DESC, sort_order ASC, id ASC LIMIT 1"
+            );
+            $st->execute([(string)$ad['id']]);
+            $filename = trim((string)$st->fetchColumn());
+        } catch (Throwable $e) {
+            return '';
+        }
+
+        if ($filename === '') {
+            return '';
+        }
+
+        $relative = ltrim(str_replace('\\', '/', $filename), '/');
+        if (strpos($relative, 'uploads/') !== 0) {
+            $relative = 'uploads/' . basename($relative);
+        }
+
+        if (!is_file(__DIR__ . '/' . $relative)) {
+            return '';
+        }
+
+        $isHttps = (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off')
+            || (int)($_SERVER['SERVER_PORT'] ?? 0) === 443
+            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+
+        $scheme = $isHttps ? 'https' : 'http';
+        $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+
+        if ($host === '') {
+            return '';
+        }
+
+        return $scheme . '://' . $host . '/' . $relative;
+    }
+}
+
+/**
+ * نرمال‌سازی شماره موبایل به فرمت استانداردِ ۰۹xxxxxxxxx
+ *
+ * اعداد فارسی/عربی را به انگلیسی تبدیل می‌کند، فاصله و خط تیره را حذف
+ * می‌کند و پیش‌شماره‌های +98 / 0098 / 98 را به ۰۹ تبدیل می‌کند.
+ * اگر شماره معتبر نباشد، همان رشته‌ی ورودی (پاک‌شده) برگردانده می‌شود.
+ */
+if (!function_exists('melkinoNormalizePhone')) {
+    function melkinoNormalizePhone(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        // اعداد فارسی و عربی ← انگلیسی
+        $value = str_replace(
+            ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹','٠','١','٢','٣','٤','٥','٦','٧','٨','٩'],
+            ['0','1','2','3','4','5','6','7','8','9','0','1','2','3','4','5','6','7','8','9'],
+            $value
+        );
+
+        // حذف هرچه رقم نیست
+        $value = preg_replace('/[^0-9+]/', '', $value) ?? '';
+
+        // +98 / 0098 / 98  →  09
+        if (strpos($value, '+98') === 0) {
+            $value = '0' . substr($value, 3);
+        } elseif (strpos($value, '0098') === 0) {
+            $value = '0' . substr($value, 4);
+        } elseif (strpos($value, '98') === 0 && strlen($value) > 10) {
+            $value = '0' . substr($value, 2);
+        }
+
+        return $value;
     }
 }
 

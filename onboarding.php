@@ -30,8 +30,9 @@ if (empty($onboardingData)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>ملکینو - خوش آمدید</title>
-    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" media="print" onload="this.media='all'" />
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="design-pro.css">
     <style>
         /* استایل صفحات هدایت (کاملاً اختصاصی و بدون هدر/فوتر) */
         body, html {

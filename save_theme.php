@@ -180,7 +180,7 @@ function replaceCssBlock(string $css, string $selector, array $values): string {
 
 $css = is_file($cssFile) ? (string)@file_get_contents($cssFile) : '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
     $themes = [
         'light' => array_merge($defaultThemes['light'], extractThemeMap($css, ':root', $allowed)),
         'dark'  => array_merge($defaultThemes['dark'], extractThemeMap($css, '[data-theme="dark"]', $allowed)),

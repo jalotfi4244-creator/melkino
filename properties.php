@@ -31,7 +31,7 @@ require_once __DIR__ . '/config.php';
 $__gp = getGlobalSettings();
 $__hideAllPublicPrices = (!$__gp['show_prices'] || !empty($__gp['hide_all_prices']));
 
-require_once 'header.php';
+require_once __DIR__ . '/header.php';
 ?>
 
 <style>
@@ -2339,5 +2339,5 @@ require_once 'header.php';
 
 
 <?php
-require_once 'footer.php';
+require_once __DIR__ . '/footer.php';
 ?>

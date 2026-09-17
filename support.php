@@ -215,7 +215,7 @@ function supportStatusClass($status)
    POST ACTIONS
    ========================================================= */
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
     header('Content-Type: application/json; charset=utf-8');
 

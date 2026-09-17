@@ -1,0 +1,655 @@
+/* =========================================================
+   ملکینو — لایه‌ی طراحی لوکس (Design Pro)
+   این فایل بعد از style.css لود می‌شود و فقط ظاهر را ارتقا
+   می‌دهد؛ ساختار و نام کلاس‌ها دست‌نخورده باقی می‌ماند،
+   بنابراین با تم‌ها و تنظیمات پنل ادمین سازگار است.
+   ========================================================= */
+
+/* ---------------------------------------------------------
+   توکن‌های جدید
+   --------------------------------------------------------- */
+:root {
+    --gold-gradient: linear-gradient(135deg, #D4AF37 0%, #F0D98A 45%, #A98416 100%);
+    --primary-gradient: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+    --surface-gradient: linear-gradient(180deg, var(--surface) 0%, var(--surface-soft) 100%);
+
+    --shadow-sm: 0 1px 2px rgba(17, 24, 39, .05), 0 1px 3px rgba(17, 24, 39, .04);
+    --shadow-md: 0 4px 10px rgba(17, 24, 39, .06), 0 2px 4px rgba(17, 24, 39, .04);
+    --shadow-lg: 0 12px 28px rgba(17, 24, 39, .10), 0 4px 10px rgba(17, 24, 39, .05);
+    --shadow-xl: 0 22px 48px rgba(17, 24, 39, .14), 0 8px 16px rgba(17, 24, 39, .06);
+    --shadow-gold: 0 10px 26px rgba(212, 175, 55, .28);
+
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 22px;
+    --radius-xl: 28px;
+
+    --ring: 0 0 0 3px rgba(212, 175, 55, .28);
+    --ease: cubic-bezier(.22, .61, .36, 1);
+}
+
+[data-theme="dark"] {
+    --gold-gradient: linear-gradient(135deg, #E5B842 0%, #F7E7A6 45%, #B98F19 100%);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+    --shadow-md: 0 6px 14px rgba(0, 0, 0, .38);
+    --shadow-lg: 0 16px 34px rgba(0, 0, 0, .46);
+    --shadow-xl: 0 26px 56px rgba(0, 0, 0, .55);
+    --shadow-gold: 0 12px 30px rgba(229, 184, 66, .26);
+}
+
+/* ---------------------------------------------------------
+   پایه و تایپوگرافی
+   --------------------------------------------------------- */
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -.01em;
+}
+
+h1, h2, h3, h4, h5 {
+    letter-spacing: -.02em;
+    line-height: 1.45;
+}
+
+.app-container {
+    background:
+        radial-gradient(1200px 420px at 100% -8%, rgba(212, 175, 55, .07), transparent 60%),
+        radial-gradient(900px 380px at -10% 0%, rgba(6, 78, 78, .06), transparent 60%),
+        var(--bg);
+}
+
+[data-theme="dark"] .app-container {
+    background:
+        radial-gradient(1200px 420px at 100% -8%, rgba(229, 184, 66, .10), transparent 60%),
+        radial-gradient(900px 380px at -10% 0%, rgba(21, 155, 143, .10), transparent 60%),
+        var(--bg);
+}
+
+/* ---------------------------------------------------------
+   نوار بالا (Topbar)
+   --------------------------------------------------------- */
+.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border-bottom: 1px solid var(--border-light);
+    box-shadow: var(--shadow-sm);
+}
+
+.topbar::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: -1px;
+    height: 2px;
+    background: var(--gold-gradient);
+    opacity: .55;
+}
+
+.topbar-title {
+    font-weight: 800;
+    letter-spacing: -.02em;
+}
+
+.theme-toggle-btn,
+.topbar-action,
+.icon-btn {
+    border-radius: 12px;
+    transition: background .2s var(--ease), transform .2s var(--ease), color .2s var(--ease);
+}
+
+.theme-toggle-btn:hover,
+.topbar-action:hover,
+.icon-btn:hover {
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    transform: translateY(-1px);
+}
+
+/* ---------------------------------------------------------
+   ناوبری پایین (Bottom Nav)
+   --------------------------------------------------------- */
+.bottom-nav {
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    border-top: 1px solid var(--border-light);
+    box-shadow: 0 -10px 30px rgba(17, 24, 39, .10);
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+}
+
+[data-theme="dark"] .bottom-nav {
+    box-shadow: 0 -12px 34px rgba(0, 0, 0, .45);
+}
+
+.bottom-nav .nav-item {
+    position: relative;
+    border-radius: 16px;
+    padding: 8px 6px;
+    color: var(--text-secondary);
+    transition: color .22s var(--ease), background .22s var(--ease), transform .22s var(--ease);
+}
+
+.bottom-nav .nav-item span {
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.bottom-nav .nav-item::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    inset-inline: 50%;
+    width: 0;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--gold-gradient);
+    transform: translateX(50%);
+    transition: width .28s var(--ease), inset-inline .28s var(--ease);
+}
+
+.bottom-nav .nav-item.active,
+.bottom-nav .nav-item:hover {
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.bottom-nav .nav-item.active::before,
+.bottom-nav .nav-item:hover::before {
+    width: 26px;
+}
+
+.bottom-nav .nav-item:active {
+    transform: scale(.96);
+}
+
+/* ---------------------------------------------------------
+   کارت ملک (هر دو کلاسِ property-card و ad-card)
+   --------------------------------------------------------- */
+.property-card,
+.ad-card {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    transition: transform .28s var(--ease), box-shadow .28s var(--ease), border-color .28s var(--ease);
+}
+
+.property-card:hover,
+.ad-card:hover {
+    transform: translateY(-6px);
+    box-shadow: var(--shadow-xl);
+    border-color: color-mix(in srgb, var(--gold) 35%, var(--border));
+}
+
+.property-card::after,
+.ad-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35);
+    opacity: 0;
+    transition: opacity .28s var(--ease);
+}
+
+.property-card:hover::after,
+.ad-card:hover::after {
+    opacity: 1;
+}
+
+/* تصویر */
+.property-card-image,
+.ad-card-image {
+    position: relative;
+    overflow: hidden;
+}
+
+.property-card-image img,
+.ad-card-image img {
+    transition: transform .5s var(--ease), filter .5s var(--ease);
+}
+
+.property-card:hover .property-card-image img,
+.ad-card:hover .ad-card-image img {
+    transform: scale(1.06);
+}
+
+.property-card-image::after,
+.ad-card-image::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 55%;
+    background: linear-gradient(to top, rgba(6, 78, 78, .55), transparent);
+    opacity: .85;
+    pointer-events: none;
+}
+
+/* نشان‌ها */
+.property-card-badges,
+.ad-card-badges {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.property-card-badge,
+.ad-card-badge,
+.badge {
+    border-radius: 999px;
+    font-weight: 800;
+    letter-spacing: 0;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: var(--shadow-sm);
+}
+
+.badge-gold,
+.ad-card-badge.vip {
+    background: var(--gold-gradient) !important;
+    color: #1F2937 !important;
+    box-shadow: var(--shadow-gold);
+}
+
+.badge-primary {
+    background: var(--primary-gradient) !important;
+    color: #fff !important;
+}
+
+/* عنوان و قیمت */
+.property-card-title,
+.ad-card-title {
+    font-weight: 800;
+    letter-spacing: -.02em;
+}
+
+.price,
+.property-card-price,
+.ad-card-price {
+    font-weight: 900;
+    letter-spacing: -.03em;
+    background: var(--gold-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+/* ---------------------------------------------------------
+   دکمه‌ها
+   --------------------------------------------------------- */
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-gold,
+.btn-success,
+.btn-danger,
+.btn-outline-primary {
+    border-radius: 14px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+    transition: transform .18s var(--ease), box-shadow .22s var(--ease), filter .22s var(--ease);
+}
+
+.btn-primary {
+    background: var(--primary-gradient) !important;
+    border: none !important;
+    color: #fff !important;
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--primary) 28%, transparent);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 28px color-mix(in srgb, var(--primary) 34%, transparent);
+}
+
+.btn-gold {
+    background: var(--gold-gradient) !important;
+    border: none !important;
+    color: #1F2937 !important;
+    box-shadow: var(--shadow-gold);
+}
+
+.btn-gold:hover {
+    transform: translateY(-2px);
+}
+
+.btn-secondary {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: color-mix(in srgb, var(--gold) 45%, var(--border)) !important;
+}
+
+.btn:active,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-gold:active {
+    transform: translateY(0) scale(.98);
+}
+
+.btn-primary-full {
+    border-radius: 16px;
+    background: var(--primary-gradient) !important;
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+/* ---------------------------------------------------------
+   کارت‌ها و فرم‌ها
+   --------------------------------------------------------- */
+.card,
+.card-elevated {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-md);
+    transition: box-shadow .25s var(--ease), transform .25s var(--ease);
+}
+
+.card-elevated:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
+}
+
+.form-input,
+.form-select,
+.form-textarea,
+.admin-input {
+    border-radius: 14px !important;
+    border: 1px solid var(--border) !important;
+    background: var(--surface) !important;
+    transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus,
+.admin-input:focus {
+    outline: none;
+    border-color: var(--gold) !important;
+    box-shadow: var(--ring) !important;
+}
+
+.form-group label,
+.admin-field-label {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------
+   مودال
+   --------------------------------------------------------- */
+.modal-overlay {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.modal-box {
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    border: 1px solid var(--border);
+    animation: melkinoModalIn .26s var(--ease);
+}
+
+@keyframes melkinoModalIn {
+    from { opacity: 0; transform: translateY(14px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---------------------------------------------------------
+   بخش‌های صفحه جزئیات ملک
+   --------------------------------------------------------- */
+.section-card {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-md);
+    background: var(--surface);
+}
+
+.consultant-bar,
+.bottom-actions-fixed > div {
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-lg) !important;
+    border: 1px solid var(--border-light) !important;
+    background: color-mix(in srgb, var(--surface) 92%, transparent) !important;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.consultant-btn {
+    border-radius: 14px !important;
+    font-weight: 800 !important;
+    transition: transform .18s var(--ease), box-shadow .22s var(--ease);
+}
+
+.consultant-btn:hover {
+    transform: translateY(-2px);
+}
+
+/* گالری تصاویر */
+.gallery-main img,
+.gallery-container img {
+    border-radius: var(--radius-lg);
+}
+
+/* ---------------------------------------------------------
+   پنل ادمین
+   --------------------------------------------------------- */
+.admin-body .admin-card {
+    border-radius: var(--radius-lg) !important;
+    border: 1px solid var(--border-light) !important;
+    box-shadow: var(--shadow-md) !important;
+    overflow: hidden;
+}
+
+.admin-card .card-header {
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--primary) 6%, var(--surface)),
+        var(--surface));
+    border-bottom: 1px solid var(--border-light);
+}
+
+.admin-card .card-title {
+    font-weight: 800;
+    letter-spacing: -.02em;
+}
+
+/* تب‌ها */
+.admin-body .tabs-container {
+    gap: 8px !important;
+    padding: 8px !important;
+    border-radius: var(--radius-lg) !important;
+    background: color-mix(in srgb, var(--surface) 85%, transparent) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-md);
+}
+
+.admin-body .tab-btn {
+    border-radius: 14px !important;
+    transition: transform .2s var(--ease), box-shadow .24s var(--ease), background .24s var(--ease);
+}
+
+.admin-body .tab-btn.active {
+    background: var(--primary-gradient) !important;
+    color: #fff !important;
+    box-shadow: 0 10px 22px color-mix(in srgb, var(--primary) 30%, transparent) !important;
+    transform: translateY(-1px);
+}
+
+/* کارت‌های آماری */
+.admin-stat-card {
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-md) !important;
+    border: 1px solid var(--border-light) !important;
+    transition: transform .24s var(--ease), box-shadow .24s var(--ease);
+    position: relative;
+    overflow: hidden;
+}
+
+.admin-stat-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: var(--gold-gradient);
+    opacity: .9;
+}
+
+.admin-stat-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg) !important;
+}
+
+.admin-stat-number {
+    background: var(--gold-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-weight: 900;
+    letter-spacing: -.03em;
+}
+
+/* هدر فرماندهی و هیرو */
+.admin-command-header,
+.admin-hero {
+    border-radius: var(--radius-xl) !important;
+    border: 1px solid var(--border-light);
+    position: relative;
+    overflow: hidden;
+}
+
+.admin-command-header::after,
+.admin-hero::after {
+    content: "";
+    position: absolute;
+    inset: -40% -10% auto auto;
+    width: 320px;
+    height: 320px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(212, 175, 55, .22), transparent 62%);
+    pointer-events: none;
+}
+
+/* جدول کاربران */
+.users-table {
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border-light);
+}
+
+.users-table thead th {
+    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+    font-weight: 800;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.users-table tbody tr {
+    transition: background .18s var(--ease);
+}
+
+.users-table tbody tr:hover {
+    background: color-mix(in srgb, var(--gold) 7%, transparent);
+}
+
+/* سطرهای آگهی در پنل */
+.ad-row-thumb {
+    border-radius: 12px !important;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+.ad-status,
+.ad-vip-pill,
+.ad-quick-status {
+    border-radius: 999px !important;
+    font-weight: 800 !important;
+}
+
+/* ---------------------------------------------------------
+   پیام‌ها و وضعیت خالی
+   --------------------------------------------------------- */
+.melkino-toast {
+    border-radius: 16px !important;
+    box-shadow: var(--shadow-xl) !important;
+    border: 1px solid var(--border-light);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.empty-state {
+    border-radius: var(--radius-lg);
+    border: 1px dashed var(--border);
+    background: var(--surface-soft);
+}
+
+/* ---------------------------------------------------------
+   تبلیغات و ملک‌های مشابه (هماهنگ با طراحی جدید)
+   --------------------------------------------------------- */
+.promo-card {
+    border-radius: var(--radius-lg) !important;
+    border: 1px dashed color-mix(in srgb, var(--gold) 55%, var(--border)) !important;
+    box-shadow: var(--shadow-md) !important;
+}
+
+.promo-cta {
+    border-radius: 12px !important;
+    box-shadow: 0 8px 18px color-mix(in srgb, var(--primary) 26%, transparent);
+}
+
+/* ---------------------------------------------------------
+   اسکرول‌بار و انتخاب متن
+   --------------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--primary) 32%, transparent);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--primary) 55%, transparent);
+    background-clip: content-box;
+}
+
+::selection {
+    background: color-mix(in srgb, var(--gold) 40%, transparent);
+}
+
+/* ---------------------------------------------------------
+   کاهش حرکت برای کاربرانی که ترجیح می‌دهند
+   --------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: .01ms !important;
+        transition-duration: .01ms !important;
+    }
+}

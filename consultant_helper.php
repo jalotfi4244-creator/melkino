@@ -3,6 +3,10 @@ require_once __DIR__ . '/config.php';
 
 function getConsultantsList(): array {
     global $pdo; if (!$pdo) return [];
+    // اطمینان از اینکه ستون‌های property_type و transaction_type وجود دارند
+    if (function_exists('melkinoEnsureConsultantSpecialtyColumns')) {
+        melkinoEnsureConsultantSpecialtyColumns();
+    }
     $rows=$pdo->query("SELECT c.id,c.name,c.phone,c.telegram_username,c.telegram_link,c.is_active AS active,c.sort_order AS priority FROM consultants c ORDER BY c.sort_order ASC,c.id ASC")->fetchAll(PDO::FETCH_ASSOC);
     $out=[];
     $sp=$pdo->prepare("SELECT property_type,transaction_type FROM consultant_specialties WHERE consultant_id=? ORDER BY id ASC");

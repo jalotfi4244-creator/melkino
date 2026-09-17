@@ -1,4 +1,4 @@
-<?php require_once 'header.php'; ?>
+<?php require_once __DIR__ . '/header.php'; ?>
 <style>
     .main-content { flex: 1; overflow-y: auto; padding-bottom: 75px; background: var(--bg); display: flex; flex-direction: column; }
     .step-content { display: none; padding: 0 var(--space-3); flex-direction: column; gap: var(--space-2); animation: fadeIn 0.3s ease forwards; }
@@ -157,13 +157,34 @@
                 return;
             }
 
-            if (!isTelegramUser && !isValidIranianPhone(phone)) {
+            // شماره تماس برای «همه» الزامی است، حتی کاربرانِ تلگرام؛
+            // چون تلگرام شماره‌ی کاربر را در اختیار ربات نمی‌گذارد و آگهی
+            // بدون شماره‌ی تماس بی‌معنی است. (قبلاً برای کاربران تلگرام
+            // این بررسی انجام نمی‌شد و کاربر با شماره‌ی خالی ادامه می‌داد،
+            // بعد در صفحه‌ی ثبت ملک دوباره به همین‌جا برگردانده می‌شد و
+            // عملاً در یک حلقه گیر می‌کرد.)
+            var normalizedPhone = window.melkinoNormalizePhone
+                ? window.melkinoNormalizePhone(phone)
+                : phone;
+
+            var phoneValid = window.melkinoIsValidPhone
+                ? window.melkinoIsValidPhone(normalizedPhone)
+                : isValidIranianPhone(phone);
+
+            if (!phoneValid) {
                 alert('لطفاً یک شماره موبایل معتبر وارد کنید (مثلاً ۰۹۱۲۳۴۵۶۷۸۹).');
                 return;
             }
 
-            if (!isTelegramUser) {
-                localStorage.setItem('melkino_user_phone', phone);
+            document.getElementById('regPhone').value = normalizedPhone;
+            localStorage.setItem('melkino_user_phone', normalizedPhone);
+
+            // ذخیره در حساب کاربری تا دفعه‌ی بعد خودکار پر شود
+            if (typeof window.melkinoSaveContact === 'function') {
+                window.melkinoSaveContact(
+                    document.getElementById('regLastName').value.trim(),
+                    normalizedPhone
+                );
             }
         }
 
@@ -204,4 +225,4 @@
         document.getElementById('stepCounter').innerText = '۱';
     });
 </script>
-<?php require_once 'footer.php'; ?>
+<?php require_once __DIR__ . '/footer.php'; ?>

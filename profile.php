@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'header.php';
+require_once __DIR__ . '/header.php';
 
 $userName  = trim((string)($_SESSION['user_name'] ?? '')) ?: 'کاربر ملکینو';
 $userPhone = trim((string)($_SESSION['user_phone'] ?? ''));
@@ -2380,5 +2380,5 @@ if ($pdo instanceof PDO) {
 
 
 <?php
-require_once 'footer.php';
+require_once __DIR__ . '/footer.php';
 ?>

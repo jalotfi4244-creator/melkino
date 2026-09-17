@@ -1,5 +1,28 @@
 <?php
-require_once 'header.php';
+require_once __DIR__ . '/header.php';
+
+// ==============================================
+// اطلاعاتِ تماسِ ذخیره‌شده روی سرور
+// (پیش از این فقط در localStorage بود و بازدیدکنندگان آن را نمی‌دیدند)
+// ==============================================
+$melkinoServerContact = null;
+
+try {
+
+    if (($pdo instanceof PDO) && function_exists('dbSettingGet')) {
+
+        $melkinoServerContact =
+            dbSettingGet($pdo, 'contact', 'info', null);
+    }
+
+} catch (Throwable $e) {
+
+    error_log(
+        'contact.php: خطا در خواندن اطلاعات تماس — ' . $e->getMessage()
+    );
+
+    $melkinoServerContact = null;
+}
 
 // ==============================================
 // پیدا کردن مسیر لوگو (هماهنگ با هدر)
@@ -1331,12 +1354,10 @@ if (!file_exists($logoPath)) {
                     </div>
 
 
-                    <iframe
-                        id="mapFrame"
-                        allowfullscreen
-                        loading="lazy"
-                        referrerpolicy="no-referrer-when-downgrade"
-                    ></iframe>
+                    <div
+                        id="officeMap"
+                        style="display:none;width:100%;height:100%;z-index:1"
+                    ></div>
 
 
                     <div
@@ -1503,6 +1524,292 @@ if (!file_exists($logoPath)) {
 
                 </a>
 
+                <!-- بله -->
+
+                <a
+                    href="#"
+                    id="baleChannelLink"
+                    class="social-premium-card bale-card"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="display:none"
+                >
+
+                    <div class="social-premium-icon">
+
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <path d="M21.3 4.4L2.9 11.1c-.8.3-.8 1.5.1 1.7l4.5 1.1 1.7 5.3c.2.7 1.1.9 1.6.3l2.5-2.8 4.4 3.2c.6.4 1.4.1 1.6-.6l2.8-13.3c.2-.9-.6-1.6-1.3-1.1z"/>
+                        </svg>
+
+                    </div>
+
+
+                    <div class="social-premium-content">
+
+                        <span class="social-premium-label">
+                            کانال رسمی ملکینو
+                        </span>
+
+                        <strong>
+                            بله
+                        </strong>
+
+                        <span class="social-premium-description">
+                            مشاهده فایل‌ها و جدیدترین آگهی‌های ملکینو
+                        </span>
+
+                    </div>
+
+
+                    <div class="social-premium-arrow">
+
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 18l6-6-6-6"/>
+                        </svg>
+
+                    </div>
+
+                </a>
+
+
+                <!-- کارت‌های سفارشی — متن، نام پیام‌رسان و آدرس از پنل ادمین تنظیم می‌شود -->
+
+                <a
+                    href="#"
+                    id="customChannelLink0"
+                    class="social-premium-card custom-card"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="display:none"
+                >
+
+                    <div class="social-premium-icon">
+
+                        <img
+                            id="customChannelIcon0"
+                            src=""
+                            alt=""
+                            style="width:26px;height:26px;object-fit:contain;display:none;border-radius:6px"
+                        >
+
+                        <span
+                            id="customChannelEmoji0"
+                            style="font-size:24px;line-height:1"
+                        >🌐</span>
+
+                    </div>
+
+
+                    <div class="social-premium-content">
+
+                        <span class="social-premium-label" id="customChannelLabel0"></span>
+
+                        <strong id="customChannelName0"></strong>
+
+                        <span class="social-premium-description" id="customChannelDesc0"></span>
+
+                    </div>
+
+
+                    <div class="social-premium-arrow">
+
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 18l6-6-6-6"/>
+                        </svg>
+
+                    </div>
+
+                </a>
+
+                <a
+                    href="#"
+                    id="customChannelLink1"
+                    class="social-premium-card custom-card"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="display:none"
+                >
+
+                    <div class="social-premium-icon">
+
+                        <img
+                            id="customChannelIcon1"
+                            src=""
+                            alt=""
+                            style="width:26px;height:26px;object-fit:contain;display:none;border-radius:6px"
+                        >
+
+                        <span
+                            id="customChannelEmoji1"
+                            style="font-size:24px;line-height:1"
+                        >🌐</span>
+
+                    </div>
+
+
+                    <div class="social-premium-content">
+
+                        <span class="social-premium-label" id="customChannelLabel1"></span>
+
+                        <strong id="customChannelName1"></strong>
+
+                        <span class="social-premium-description" id="customChannelDesc1"></span>
+
+                    </div>
+
+
+                    <div class="social-premium-arrow">
+
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 18l6-6-6-6"/>
+                        </svg>
+
+                    </div>
+
+                </a>
+
+                <a
+                    href="#"
+                    id="customChannelLink2"
+                    class="social-premium-card custom-card"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="display:none"
+                >
+
+                    <div class="social-premium-icon">
+
+                        <img
+                            id="customChannelIcon2"
+                            src=""
+                            alt=""
+                            style="width:26px;height:26px;object-fit:contain;display:none;border-radius:6px"
+                        >
+
+                        <span
+                            id="customChannelEmoji2"
+                            style="font-size:24px;line-height:1"
+                        >🌐</span>
+
+                    </div>
+
+
+                    <div class="social-premium-content">
+
+                        <span class="social-premium-label" id="customChannelLabel2"></span>
+
+                        <strong id="customChannelName2"></strong>
+
+                        <span class="social-premium-description" id="customChannelDesc2"></span>
+
+                    </div>
+
+
+                    <div class="social-premium-arrow">
+
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 18l6-6-6-6"/>
+                        </svg>
+
+                    </div>
+
+                </a>
+
+                <a
+                    href="#"
+                    id="customChannelLink3"
+                    class="social-premium-card custom-card"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="display:none"
+                >
+
+                    <div class="social-premium-icon">
+
+                        <img
+                            id="customChannelIcon3"
+                            src=""
+                            alt=""
+                            style="width:26px;height:26px;object-fit:contain;display:none;border-radius:6px"
+                        >
+
+                        <span
+                            id="customChannelEmoji3"
+                            style="font-size:24px;line-height:1"
+                        >🌐</span>
+
+                    </div>
+
+
+                    <div class="social-premium-content">
+
+                        <span class="social-premium-label" id="customChannelLabel3"></span>
+
+                        <strong id="customChannelName3"></strong>
+
+                        <span class="social-premium-description" id="customChannelDesc3"></span>
+
+                    </div>
+
+
+                    <div class="social-premium-arrow">
+
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 18l6-6-6-6"/>
+                        </svg>
+
+                    </div>
+
+                </a>
+
+                <a
+                    href="#"
+                    id="customChannelLink4"
+                    class="social-premium-card custom-card"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="display:none"
+                >
+
+                    <div class="social-premium-icon">
+
+                        <img
+                            id="customChannelIcon4"
+                            src=""
+                            alt=""
+                            style="width:26px;height:26px;object-fit:contain;display:none;border-radius:6px"
+                        >
+
+                        <span
+                            id="customChannelEmoji4"
+                            style="font-size:24px;line-height:1"
+                        >🌐</span>
+
+                    </div>
+
+
+                    <div class="social-premium-content">
+
+                        <span class="social-premium-label" id="customChannelLabel4"></span>
+
+                        <strong id="customChannelName4"></strong>
+
+                        <span class="social-premium-description" id="customChannelDesc4"></span>
+
+                    </div>
+
+
+                    <div class="social-premium-arrow">
+
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 18l6-6-6-6"/>
+                        </svg>
+
+                    </div>
+
+                </a>
+
+
             </div>
 
         </section>
@@ -1552,6 +1859,17 @@ if (!file_exists($logoPath)) {
 
 
 <script>
+
+/* =========================================================
+   اطلاعاتِ تماس از سمت سرور (تنظیم‌شده در پنل ادمین)
+   این مقدار برای همه‌ی بازدیدکنندگان یکسان است.
+   ========================================================= */
+
+window.MELKINO_SERVER_CONTACT = <?= json_encode(
+    $melkinoServerContact,
+    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+) ?>;
+
 (function () {
 
     'use strict';
@@ -1607,37 +1925,31 @@ if (!file_exists($logoPath)) {
             telegram: '',
             instagram: '',
             linkedin: '',
-            mapUrl: '',
-            workingHours: ''
+            workingHours: '',
+            neshanKey: '',
+            officeLat: null,
+            officeLng: null,
+            officeZoom: 15,
+            bale: '',
+            customCards: []
         };
 
 
-        const saved = localStorage.getItem(
-            'melkino_contact_info'
-        );
-
-
-        if (!saved) {
-            return fallback;
-        }
-
+        let fromStorage = {};
 
         try {
 
-            const parsed = JSON.parse(saved);
+            const saved =
+                localStorage.getItem('melkino_contact_info');
 
-            if (
-                !parsed ||
-                typeof parsed !== 'object'
-            ) {
-                return fallback;
+            if (saved) {
+
+                const parsed = JSON.parse(saved);
+
+                if (parsed && typeof parsed === 'object') {
+                    fromStorage = parsed;
+                }
             }
-
-            return Object.assign(
-                {},
-                fallback,
-                parsed
-            );
 
         } catch (error) {
 
@@ -1645,9 +1957,48 @@ if (!file_exists($logoPath)) {
                 'Melkino contact info parse error:',
                 error
             );
-
-            return fallback;
         }
+
+
+        /* اولویت: سرور > localStorage > پیش‌فرض */
+
+        const merged =
+            Object.assign({}, fallback, fromStorage);
+
+
+        if (
+            window.MELKINO_SERVER_CONTACT &&
+            typeof window.MELKINO_SERVER_CONTACT === 'object'
+        ) {
+
+            const server =
+                window.MELKINO_SERVER_CONTACT;
+
+            Object.keys(server).forEach(function (key) {
+
+                const value = server[key];
+
+                if (value === null || value === undefined) {
+                    return;
+                }
+
+                if (
+                    typeof value === 'string' &&
+                    value.trim() === ''
+                ) {
+                    return;
+                }
+
+                merged[key] = value;
+            });
+        }
+
+
+        if (!Array.isArray(merged.customCards)) {
+            merged.customCards = [];
+        }
+
+        return merged;
     }
 
 
@@ -1741,6 +2092,162 @@ if (!file_exists($logoPath)) {
        RENDER CONTACT DATA
        ========================================================= */
 
+    /* =========================================================
+       بارگذاریِ نقشه‌ی نشان — فقط وقتی واقعاً لازم باشد
+       (اسکریپت به‌صورت async بارگیری می‌شود تا هرگز جلوی
+        نمایشِ صفحه را نگیرد)
+       ========================================================= */
+
+    let neshanSdkPromise = null;
+
+
+    function loadNeshanSdk() {
+
+        if (neshanSdkPromise) {
+            return neshanSdkPromise;
+        }
+
+        neshanSdkPromise =
+            new Promise(function (resolve, reject) {
+
+                const css =
+                    document.createElement(
+                        'link'
+                    );
+
+                css.rel =
+                    'stylesheet';
+
+                css.href =
+                    'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.css';
+
+                document.head.appendChild(
+                    css
+                );
+
+
+                const script =
+                    document.createElement(
+                        'script'
+                    );
+
+                script.async =
+                    true;
+
+                script.src =
+                    'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.js';
+
+                script.onload =
+                    function () {
+                        resolve();
+                    };
+
+                script.onerror =
+                    function () {
+                        reject(
+                            new Error(
+                                'Neshan SDK failed to load'
+                            )
+                        );
+                    };
+
+                document.head.appendChild(
+                    script
+                );
+            });
+
+        return neshanSdkPromise;
+    }
+
+
+    function initNeshanMap(
+        containerId,
+        key,
+        lat,
+        lng,
+        zoom,
+        draggable,
+        onMove
+    ) {
+
+        return loadNeshanSdk()
+            .then(function () {
+
+                if (typeof L === 'undefined') {
+                    return null;
+                }
+
+                const map =
+                    new L.Map(
+                        containerId,
+                        {
+                            key: key,
+                            maptype: 'dreamy',
+                            center: [lat, lng],
+                            zoom: zoom,
+                            poi: true,
+                            traffic: false
+                        }
+                    );
+
+                const marker =
+                    L.marker(
+                        [lat, lng],
+                        {
+                            draggable: !!draggable
+                        }
+                    ).addTo(map);
+
+
+                if (draggable && onMove) {
+
+                    marker.on(
+                        'dragend',
+                        function () {
+
+                            const pos =
+                                marker.getLatLng();
+
+                            onMove(
+                                pos.lat,
+                                pos.lng
+                            );
+                        }
+                    );
+
+                    map.on(
+                        'click',
+                        function (event) {
+
+                            marker.setLatLng(
+                                event.latlng
+                            );
+
+                            onMove(
+                                event.latlng.lat,
+                                event.latlng.lng
+                            );
+                        }
+                    );
+                }
+
+                return {
+                    map: map,
+                    marker: marker
+                };
+            })
+            .catch(function (error) {
+
+                console.warn(
+                    'نقشه‌ی نشان بارگیری نشد:',
+                    error
+                );
+
+                return null;
+            });
+    }
+
+
     function renderContactPage() {
 
         const data = loadContactInfo();
@@ -1789,10 +2296,45 @@ if (!file_exists($logoPath)) {
             ).trim();
 
 
-        const mapUrl =
+        const bale =
             String(
-                data.mapUrl || ''
+                data.bale || ''
             ).trim();
+
+
+        const neshanKey =
+            String(
+                data.neshanKey || ''
+            ).trim();
+
+
+        function toCoord(value) {
+
+            if (
+                value === null ||
+                value === undefined ||
+                value === ''
+            ) {
+                return null;
+            }
+
+            const num =
+                Number(value);
+
+            return isFinite(num)
+                ? num
+                : null;
+        }
+
+
+        const officeLat =
+            toCoord(data.officeLat);
+
+        const officeLng =
+            toCoord(data.officeLng);
+
+        const officeZoom =
+            Number(data.officeZoom) || 15;
 
 
         const workingHours =
@@ -2089,12 +2631,182 @@ if (!file_exists($logoPath)) {
 
 
         /* =====================================================
+           BALE CHANNEL
+           ===================================================== */
+
+        const baleChannelLink =
+            document.getElementById(
+                'baleChannelLink'
+            );
+
+
+        if (baleChannelLink) {
+
+            if (bale) {
+
+                baleChannelLink.href =
+                    bale;
+
+                baleChannelLink.style.display =
+                    'flex';
+
+            } else {
+
+                baleChannelLink.href =
+                    '#';
+
+                baleChannelLink.style.display =
+                    'none';
+            }
+        }
+
+
+        /* =====================================================
+           کارت‌های سفارشی (۵ عدد — از پنل ادمین تنظیم می‌شوند)
+           ===================================================== */
+
+        const customCards =
+            Array.isArray(
+                data.customCards
+            )
+                ? data.customCards
+                : [];
+
+
+        for (let i = 0; i < 5; i++) {
+
+            const link =
+                document.getElementById(
+                    'customChannelLink' + i
+                );
+
+            if (!link) {
+                continue;
+            }
+
+            const card =
+                customCards[i] || {};
+
+            const cardLabel =
+                String(
+                    card.label || ''
+                ).trim();
+
+            const cardMessenger =
+                String(
+                    card.messenger || ''
+                ).trim();
+
+            const cardUrl =
+                String(
+                    card.url || ''
+                ).trim();
+
+            const cardIcon =
+                String(
+                    card.icon || ''
+                ).trim();
+
+
+            /* بدونِ آدرس یا بدونِ متن، کارت مخفی می‌ماند */
+
+            if (!cardUrl || !cardLabel) {
+
+                link.href =
+                    '#';
+
+                link.style.display =
+                    'none';
+
+                continue;
+            }
+
+
+            link.href =
+                cardUrl;
+
+            link.style.display =
+                'flex';
+
+
+            const labelEl =
+                document.getElementById(
+                    'customChannelLabel' + i
+                );
+
+            const nameEl =
+                document.getElementById(
+                    'customChannelName' + i
+                );
+
+            const descEl =
+                document.getElementById(
+                    'customChannelDesc' + i
+                );
+
+            const iconEl =
+                document.getElementById(
+                    'customChannelIcon' + i
+                );
+
+            const emojiEl =
+                document.getElementById(
+                    'customChannelEmoji' + i
+                );
+
+
+            if (labelEl) {
+                labelEl.textContent =
+                    cardLabel;
+            }
+
+            if (nameEl) {
+                nameEl.textContent =
+                    cardMessenger ||
+                    cardLabel;
+            }
+
+            if (descEl) {
+                descEl.textContent =
+                    cardMessenger;
+            }
+
+
+            if (iconEl && cardIcon) {
+
+                iconEl.src =
+                    cardIcon;
+
+                iconEl.style.display =
+                    'block';
+
+                if (emojiEl) {
+                    emojiEl.style.display =
+                        'none';
+                }
+
+            } else {
+
+                if (iconEl) {
+                    iconEl.style.display =
+                        'none';
+                }
+
+                if (emojiEl) {
+                    emojiEl.style.display =
+                        'inline-block';
+                }
+            }
+        }
+
+
+        /* =====================================================
            MAP
            ===================================================== */
 
-        const mapFrame =
+        const officeMapEl =
             document.getElementById(
-                'mapFrame'
+                'officeMap'
             );
 
 
@@ -2116,44 +2828,75 @@ if (!file_exists($logoPath)) {
             );
 
 
-        if (mapUrl) {
-
-            mapFrame.src =
-                mapUrl;
-
-            mapFrame.style.display =
-                'block';
-
-            mapPlaceholder.style.display =
-                'none';
-
-            mapOverlay.style.display =
-                'block';
+        const hasCoords =
+            officeLat !== null &&
+            officeLng !== null;
 
 
-            const directionUrl =
-                'https://www.google.com/maps/dir/?api=1&destination=' +
-                encodeURIComponent(
-                    address ||
-                    'املاک ملکینو شاهرود'
-                );
+        if (neshanKey && hasCoords) {
+
+            if (mapPlaceholder) {
+
+                mapPlaceholder.style.display =
+                    'none';
+            }
+
+            if (officeMapEl) {
+
+                officeMapEl.style.display =
+                    'block';
+            }
+
+            if (mapOverlay) {
+
+                mapOverlay.style.display =
+                    'block';
+            }
 
 
-            mapDirectionBtn.href =
-                directionUrl;
+            if (mapDirectionBtn) {
+
+                mapDirectionBtn.href =
+                    'https://nshn.ir/?lat=' +
+                    encodeURIComponent(
+                        officeLat
+                    ) +
+                    '&lng=' +
+                    encodeURIComponent(
+                        officeLng
+                    );
+            }
+
+
+            initNeshanMap(
+                'officeMap',
+                neshanKey,
+                officeLat,
+                officeLng,
+                officeZoom,
+                false,
+                null
+            );
 
         } else {
 
-            mapFrame.src = '';
+            if (officeMapEl) {
 
-            mapFrame.style.display =
-                'none';
+                officeMapEl.style.display =
+                    'none';
+            }
 
-            mapPlaceholder.style.display =
-                'flex';
+            if (mapPlaceholder) {
 
-            mapOverlay.style.display =
-                'none';
+                mapPlaceholder.style.display =
+                    'flex';
+            }
+
+            if (mapOverlay) {
+
+                mapOverlay.style.display =
+                    'none';
+            }
         }
     }
 
@@ -2306,5 +3049,5 @@ if (!file_exists($logoPath)) {
 
 
 <?php
-require_once 'footer.php';
+require_once __DIR__ . '/footer.php';
 ?>

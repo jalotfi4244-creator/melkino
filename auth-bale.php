@@ -1,10 +1,11 @@
 <?php
 session_start();
 header('Content-Type: application/json; charset=utf-8');
-require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../helpers/bale.php';
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/bale.php';
+require_once __DIR__ . '/auth.php';
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => 'روش مجاز نیست'], JSON_UNESCAPED_UNICODE);
     exit;
@@ -30,6 +31,13 @@ if ($verified === null) {
 $name = trim($verified['first_name'] . ' ' . $verified['last_name']);
 $identity = melkinoUpsertUser('', '', $name, $verified['username'], null, $verified['id']);
 
+// ثبت کامل اطلاعات این ورود (IP، مرورگر، پلتفرم) برای پنل ادمین
+melkinoRecordLoginInfo($identity['id'] ?? null, 'bale', [
+    'bale_id'  => $verified['id'],
+    'username' => $verified['username'],
+    'name'     => $name,
+]);
+
 if (empty($identity['trusted'])) {
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'ثبت هویت ناموفق بود.'], JSON_UNESCAPED_UNICODE);
@@ -50,9 +58,15 @@ if ($phone !== '') {
     $_SESSION['user_phone'] = $phone;
 }
 
+// توکنِ پشتیبانِ ورود: برای مرورگرهای داخلی که کوکیِ نشست را نگه نمی‌دارند
+$loginToken = function_exists('melkinoMintLoginToken')
+    ? melkinoMintLoginToken($identity['id'] ?? null, null, $verified['id'])
+    : '';
+
 echo json_encode([
     'success' => true,
     'user_id' => $identity['id'],
     'name' => $name,
     'phone' => $phone,
+    'login_token' => $loginToken,
 ], JSON_UNESCAPED_UNICODE);

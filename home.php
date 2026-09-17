@@ -3,6 +3,7 @@
 session_start();
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/promotions.php';
 
 
 /* =====================================================
@@ -3012,7 +3013,8 @@ body {
 
                 <?php foreach (
                     $publishedAds
-                    as $ad
+                    as $melkinoAdIndex
+                    => $ad
                 ): ?>
 
 
@@ -3285,6 +3287,13 @@ body {
 
                     </a>
 
+
+                    <?php
+                    // تزریق تبلیغ بین کارت‌ها (بر اساس تنظیمات پنل ادمین)
+                    if (function_exists('melkinoPromotionAfter')) {
+                        echo melkinoPromotionAfter('home', (int)$melkinoAdIndex + 1);
+                    }
+                    ?>
 
                 <?php endforeach; ?>
 

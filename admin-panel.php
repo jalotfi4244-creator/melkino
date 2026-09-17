@@ -15,7 +15,7 @@ ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
 error_reporting(E_ALL);
 
-require_once 'config.php';
+require_once __DIR__ . '/config.php';
 
 // نشست امن ادمین: timeout قابل تنظیم
 // قبلاً این مقدار از یک فایل JSON قدیمی (settings/security.json) خونده می‌شد
@@ -62,7 +62,7 @@ function adminPanelJsonResponse(array $payload, int $status = 200)
 }
 
 /* ====== ویرایش‌های کاربران: فهرست/تأیید/رد ====== */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_revision_action'])) {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['user_revision_action'])) {
     header('Content-Type: application/json; charset=utf-8');
     $a = trim((string)$_POST['user_revision_action']);
     $rid = (int)($_POST['revision_id'] ?? 0);
@@ -91,6 +91,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_revision_action'
 
 $isMockMode = defined('MOCK_MODE') && MOCK_MODE === true;
 
+// =========================================================
+// سقفِ بارِ اولیه‌ی پنل ادمین
+// =========================================================
+// پنل همه‌ی آگهی‌ها را یک‌جا در دل صفحه چاپ می‌کرد. با رشدِ تعداد
+// آگهی‌ها، حجم صفحه از کنترل خارج می‌شد (۳۰۰ آگهی ≈ ۱.۱ مگابایت،
+// ۱۰۰۰ آگهی ≈ ۳.۳ مگابایت، ۲۰۰۰ آگهی ≈ ۶.۵ مگابایت) و پنل یا بسیار
+// کند می‌شد یا از سقفِ حافظه‌ی هاست رد می‌شد و اصلاً بالا نمی‌آمد.
+// حالا فقط این تعداد از «جدیدترین» آگهی‌ها همراه صفحه می‌آید و بقیه
+// فقط در صورت نیاز و به‌صورت مرحله‌ای (دکمه‌ی «بارگذاری بقیه») گرفته
+// می‌شود. برای تغییر، این عدد را ویرایش کن.
+if (!defined('MELKINO_ADMIN_ADS_LIMIT')) {
+    define('MELKINO_ADMIN_ADS_LIMIT', 200);
+}
+if (!defined('MELKINO_ADMIN_REQUESTS_LIMIT')) {
+    define('MELKINO_ADMIN_REQUESTS_LIMIT', 200);
+}
+
+// پیامِ خطای بارگذاری آگهی‌ها؛ قبلاً هر خطایی بی‌سر و صدا به داده‌ی
+// نمونه (mock) برمی‌گشت و همین باعث می‌شد مشکلاتِ دیتابیس ماه‌ها
+// پنهان بماند. حالا خطا نگه داشته و به ادمین نشان داده می‌شود.
+$adsLoadError = '';
+
 
 /* =========================================================
    ذخیره تغییرات آگهی‌ها در MySQL
@@ -101,7 +123,7 @@ function dbCleanNumber($value): ?float {
     return is_numeric($v) ? (float)$v : null;
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_GET['ad_db_action'] ?? $_POST['ad_db_action'] ?? '') === 'bulk_sync') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_GET['ad_db_action'] ?? $_POST['ad_db_action'] ?? '') === 'bulk_sync') {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $payload = json_decode((string)file_get_contents('php://input'), true);
@@ -222,7 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_GET['ad_db_action'] ?? $
 /* =========================================================
    مدیریت وضعیت و یادداشت پیگیری درخواست‌ها
    ========================================================= */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_action'])) {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['request_action'])) {
     header('Content-Type: application/json; charset=utf-8');
 
     $requestAction = (string)($_POST['request_action'] ?? '');
@@ -740,29 +762,117 @@ if ($isMockMode) {
 
     try {
 
-        $stmt = $pdo->query("SELECT * FROM ads ORDER BY created_at DESC, numeric_id DESC");
+        // آمارِ کلی از خودِ دیتابیس گرفته می‌شود تا اعدادِ داشبورد حتی
+        // وقتی همه‌ی آگهی‌ها لود نشده‌اند، درست و کامل بمانند.
+        $adsTotalCount = 0;
+        $adsTotals = ['total' => 0, 'pending' => 0, 'published' => 0, 'vip' => 0, 'published_vip' => 0];
+        try {
+            $adsTotalCount = (int)$pdo->query("SELECT COUNT(*) FROM ads")->fetchColumn();
+            $cntRow = $pdo->query(
+                "SELECT
+                    COALESCE(SUM(status = 'pending'), 0)                     AS c_pending,
+                    COALESCE(SUM(status = 'published'), 0)                   AS c_published,
+                    COALESCE(SUM(is_vip = 1), 0)                             AS c_vip,
+                    COALESCE(SUM(is_vip = 1 AND status = 'published'), 0)    AS c_pub_vip
+                   FROM ads"
+            )->fetch(PDO::FETCH_ASSOC);
+            if (is_array($cntRow)) {
+                $adsTotals = [
+                    'total'         => $adsTotalCount,
+                    'pending'       => (int)($cntRow['c_pending'] ?? 0),
+                    'published'     => (int)($cntRow['c_published'] ?? 0),
+                    'vip'           => (int)($cntRow['c_vip'] ?? 0),
+                    'published_vip' => (int)($cntRow['c_pub_vip'] ?? 0),
+                ];
+            }
+        } catch (Throwable $e) {
+            $adsTotals['total'] = $adsTotalCount;
+        }
+
+        $adsLimit = max(20, min(2000, (int)MELKINO_ADMIN_ADS_LIMIT));
+        $stmt = $pdo->query("SELECT * FROM ads ORDER BY created_at DESC, `id` DESC LIMIT " . $adsLimit);
         $adsFromDB = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $imageStmt = $pdo->prepare("SELECT id, ad_id, filename, sort_order, is_selected, is_primary, publish_publicly FROM images WHERE ad_id = ? ORDER BY sort_order ASC, id ASC");
-        $amenityStmt = $pdo->prepare("SELECT am.name FROM ad_amenities aa INNER JOIN amenities am ON am.id = aa.amenity_id WHERE aa.ad_id = ? ORDER BY am.sort_order ASC, am.id ASC");
+        $adsLoadedCount = count($adsFromDB);
+        $adsHasMore = $adsLoadedCount < $adsTotalCount;
+
+        // تصاویر و امکانات فقط برای همین آگهی‌های لودشده خوانده می‌شوند،
+        // نه برای کلِ جدول.
+        $loadedAdIds = [];
+        foreach ($adsFromDB as $__a) {
+            $loadedAdIds[] = (string)$__a['id'];
+        }
+        $adIdFilter = '';
+        $adIdFilterAa = '';
+        if ($adsHasMore && !empty($loadedAdIds)) {
+            $quotedIds = [];
+            foreach ($loadedAdIds as $__id) {
+                $quotedIds[] = $pdo->quote($__id);
+            }
+            $inList = implode(',', $quotedIds);
+            $adIdFilter = ' WHERE ad_id IN (' . $inList . ')';
+            $adIdFilterAa = ' WHERE aa.ad_id IN (' . $inList . ')';
+        }
+        // بارگذاری یک‌جای تصاویر و امکانات:
+        // قبلاً برای هر آگهی دو کوئری جداگانه اجرا می‌شد (N+1) و با زیاد شدن
+        // آگهی‌ها پنل به‌شدت کند می‌شد. حالا فقط دو کوئریِ کلی اجرا می‌شود.
+        $imagesByAd = [];
+        try {
+            $allImages = $pdo->query(
+                "SELECT ad_id, filename, sort_order, is_selected, is_primary, publish_publicly
+                   FROM images" . $adIdFilter . " ORDER BY sort_order ASC, id ASC"
+            )->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($allImages as $img) {
+                $imagesByAd[(string)$img['ad_id']][] = $img;
+            }
+        } catch (Throwable $e) {
+            $imagesByAd = [];
+        }
+
+        $amenitiesByAd = [];
+        try {
+            $allAmenities = $pdo->query(
+                "SELECT aa.ad_id AS ad_id, am.name AS name
+                   FROM ad_amenities aa
+                   INNER JOIN amenities am ON am.id = aa.amenity_id"
+                . $adIdFilterAa .
+                " ORDER BY am.sort_order ASC, am.id ASC"
+            )->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($allAmenities as $am) {
+                $amenitiesByAd[(string)$am['ad_id']][] = $am['name'];
+            }
+        } catch (Throwable $e) {
+            $amenitiesByAd = [];
+        }
+
         foreach ($adsFromDB as &$dbAd) {
-            $imageStmt->execute([(string)$dbAd['id']]);
-            $imgs = $imageStmt->fetchAll(PDO::FETCH_ASSOC);
+            $adKey = (string)$dbAd['id'];
+            $imgs = $imagesByAd[$adKey] ?? [];
             $dbAd['images'] = array_map(static fn($img) => $img['filename'], $imgs);
-            $dbAd['selected_images'] = array_values(array_map(static fn($img) => $img['filename'], array_filter($imgs, static fn($img) => (int)$img['is_selected'] === 1 && (int)$img['publish_publicly'] === 1)));
-            $amenityStmt->execute([(string)$dbAd['id']]);
-            $dbAd['amenities'] = array_values(array_map(static fn($r) => $r['name'], $amenityStmt->fetchAll(PDO::FETCH_ASSOC)));
+            $dbAd['selected_images'] = array_values(array_map(
+                static fn($img) => $img['filename'],
+                array_filter($imgs, static fn($img) => (int)$img['is_selected'] === 1 && (int)$img['publish_publicly'] === 1)
+            ));
+            $dbAd['amenities'] = array_values($amenitiesByAd[$adKey] ?? []);
         }
         unset($dbAd);
         $adsData = normalizeAdsData($adsFromDB);
 
-    } catch (PDOException $e) {
+    } catch (Throwable $e) {
 
+        // خطا دیگر پنهان نمی‌شود: هم در لاگ ثبت می‌شود و هم به ادمین
+        // نشان داده می‌شود تا بداند پنل به داده‌ی واقعی وصل نیست.
+        $adsLoadError = $e->getMessage();
+        error_log('[melkino] ads load failed: ' . $adsLoadError);
         $adsData =
             normalizeAdsData(
                 getMockAds()
             );
     }
 }
+if (!isset($adsLoadedCount)) { $adsLoadedCount = count($adsData); }
+if (!isset($adsTotalCount))  { $adsTotalCount  = $adsLoadedCount; }
+if (!isset($adsHasMore))     { $adsHasMore     = false; }
+if (!isset($adsTotals))      { $adsTotals = ['total' => $adsTotalCount, 'pending' => 0, 'published' => 0, 'vip' => 0, 'published_vip' => 0]; }
 
 
 // ==============================================
@@ -880,10 +990,25 @@ function getAmenitiesArray($ad) {
 $requestsData = [];
 if (!$isMockMode) {
     try {
-        $stmt = $pdo->query("SELECT * FROM property_requests ORDER BY created_at DESC, id DESC");
+        $requestsTotalCount = 0;
+        try {
+            $requestsTotalCount = (int)$pdo->query("SELECT COUNT(*) FROM property_requests")->fetchColumn();
+        } catch (Throwable $e) {
+            $requestsTotalCount = 0;
+        }
+        $requestsLimit = max(20, min(2000, (int)MELKINO_ADMIN_REQUESTS_LIMIT));
+        $stmt = $pdo->query("SELECT * FROM property_requests ORDER BY created_at DESC, id DESC LIMIT " . $requestsLimit);
         $requestsData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $requestsLoadedIds = [];
+        foreach ($requestsData as $__r) { $requestsLoadedIds[] = (string)$__r['id']; }
+        $reqIdFilter = '';
+        if (!empty($requestsLoadedIds) && count($requestsData) < $requestsTotalCount) {
+            $qIds = [];
+            foreach ($requestsLoadedIds as $__id) { $qIds[] = $pdo->quote($__id); }
+            $reqIdFilter = ' WHERE request_id IN (' . implode(',', $qIds) . ')';
+        }
 
-        $matchStmt = $pdo->query("SELECT request_id, ad_id, match_percent, matched_transaction, matched_property_type, location_score, area_score, budget_score, amenities_score, is_notified FROM request_matches ORDER BY request_id ASC, match_percent DESC, id ASC");
+        $matchStmt = $pdo->query("SELECT request_id, ad_id, match_percent, matched_transaction, matched_property_type, location_score, area_score, budget_score, amenities_score, is_notified FROM request_matches" . $reqIdFilter . " ORDER BY request_id ASC, match_percent DESC, id ASC");
         $matchesByRequest = [];
         foreach ($matchStmt->fetchAll(PDO::FETCH_ASSOC) as $m) {
             $rid = (string)$m['request_id'];
@@ -900,7 +1025,7 @@ if (!$isMockMode) {
             ];
         }
 
-        $reqAmenStmt = $pdo->query("SELECT ra.request_id, am.name FROM request_amenities ra INNER JOIN amenities am ON am.id = ra.amenity_id ORDER BY ra.request_id ASC, am.sort_order ASC, am.id ASC");
+        $reqAmenStmt = $pdo->query("SELECT ra.request_id, am.name FROM request_amenities ra INNER JOIN amenities am ON am.id = ra.amenity_id" . str_replace('request_id', 'ra.request_id', $reqIdFilter) . " ORDER BY ra.request_id ASC, am.sort_order ASC, am.id ASC");
         $amenitiesByRequest = [];
         foreach ($reqAmenStmt->fetchAll(PDO::FETCH_ASSOC) as $ra) {
             $rid = (string)$ra['request_id'];
@@ -936,6 +1061,99 @@ if (!$isMockMode) {
 }
 ?>
 
+<?php
+// =========================================================
+// بارگذاریِ مرحله‌ایِ آگهی‌ها
+// =========================================================
+// وقتی تعداد آگهی‌ها از سقفِ لودِ اولیه بیشتر باشد، دکمه‌ی
+// «بارگذاری بقیه» در پنل ظاهر می‌شود و ادامه‌ی آگهی‌ها را در بسته‌های
+// ۲۰۰تایی از همین مسیر می‌گیرد. این کار باعث می‌شود پنل همیشه سبک و
+// سریع بالا بیاید و در عین حال ادمین به همه‌ی آگهی‌ها دسترسی داشته باشد.
+if (
+    ($pdo instanceof PDO)
+    && (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET')
+    && (($_GET['action'] ?? '') === 'ads_chunk')
+) {
+    $__offset = max(0, (int)($_GET['offset'] ?? 0));
+    $__limit  = max(1, min(200, (int)($_GET['limit'] ?? 200)));
+
+    try {
+        $__total = (int)$pdo->query("SELECT COUNT(*) FROM ads")->fetchColumn();
+        $__rows  = $pdo->query(
+            "SELECT * FROM ads ORDER BY created_at DESC, `id` DESC LIMIT "
+            . $__limit . " OFFSET " . $__offset
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $__ids = [];
+        foreach ($__rows as $__r) {
+            $__ids[] = (string)$__r['id'];
+        }
+        $__in = '';
+        if (!empty($__ids)) {
+            $__q = [];
+            foreach ($__ids as $__id) {
+                $__q[] = $pdo->quote($__id);
+            }
+            $__in = implode(',', $__q);
+        }
+
+        $__imagesByAd = [];
+        if ($__in !== '') {
+            foreach (
+                $pdo->query(
+                    "SELECT ad_id, filename, sort_order, is_selected, is_primary, publish_publicly
+                       FROM images WHERE ad_id IN (" . $__in . ")
+                      ORDER BY sort_order ASC, id ASC"
+                )->fetchAll(PDO::FETCH_ASSOC) as $__img
+            ) {
+                $__imagesByAd[(string)$__img['ad_id']][] = $__img;
+            }
+        }
+
+        $__amenitiesByAd = [];
+        if ($__in !== '') {
+            foreach (
+                $pdo->query(
+                    "SELECT aa.ad_id AS ad_id, am.name AS name
+                       FROM ad_amenities aa
+                       INNER JOIN amenities am ON am.id = aa.amenity_id
+                      WHERE aa.ad_id IN (" . $__in . ")
+                      ORDER BY am.sort_order ASC, am.id ASC"
+                )->fetchAll(PDO::FETCH_ASSOC) as $__am
+            ) {
+                $__amenitiesByAd[(string)$__am['ad_id']][] = $__am['name'];
+            }
+        }
+
+        foreach ($__rows as &$__r) {
+            $__k    = (string)$__r['id'];
+            $__imgs = $__imagesByAd[$__k] ?? [];
+            $__r['images'] = array_map(static fn($i) => $i['filename'], $__imgs);
+            $__r['selected_images'] = array_values(array_map(
+                static fn($i) => $i['filename'],
+                array_filter($__imgs, static fn($i) => (int)$i['is_selected'] === 1 && (int)$i['publish_publicly'] === 1)
+            ));
+            $__r['amenities'] = array_values($__amenitiesByAd[$__k] ?? []);
+        }
+        unset($__r);
+
+        adminPanelJsonResponse([
+            'success' => true,
+            'ads'     => normalizeAdsData($__rows),
+            'offset'  => $__offset,
+            'count'   => count($__rows),
+            'total'   => $__total,
+            'hasMore' => ($__offset + count($__rows)) < $__total,
+        ]);
+    } catch (Throwable $__e) {
+        adminPanelJsonResponse([
+            'success' => false,
+            'message' => 'خطا در بارگذاری آگهی‌ها: ' . $__e->getMessage(),
+        ], 500);
+    }
+}
+?>
+
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 
@@ -954,7 +1172,7 @@ if (!$isMockMode) {
 
     <link
         href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css"
-        rel="stylesheet"
+        rel="stylesheet" media="print" onload="this.media='all'"
         type="text/css"
     />
 
@@ -2835,7 +3053,7 @@ if (!$isMockMode) {
 .admin-hero{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:20px 22px;margin-bottom:16px;border-radius:20px;background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 96%,#000 4%),color-mix(in srgb,var(--primary-dark) 92%,#000 8%));color:#fff;box-shadow:0 18px 50px rgba(6,78,78,.16);overflow:hidden;position:relative}
 .admin-hero::after{content:"";position:absolute;width:230px;height:230px;border-radius:50%;left:-95px;top:-115px;background:rgba(212,175,55,.10)}
 .admin-hero-copy{position:relative;z-index:1}.admin-hero-kicker{font-size:10px;letter-spacing:1.2px;opacity:.66;font-weight:800}.admin-hero-title{font-size:24px;font-weight:950;margin-top:5px}.admin-hero-sub{font-size:11px;opacity:.68;margin-top:4px;line-height:1.8}.admin-hero-badge{position:relative;z-index:1;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.14);font-size:10px;font-weight:800}
-.admin-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.admin-stat-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;box-shadow:var(--shadow-card);position:relative;overflow:hidden}.admin-stat-icon{width:38px;height:38px;border-radius:12px;background:var(--gold-bg);color:var(--gold);display:flex;align-items:center;justify-content:center;font-size:18px}.admin-stat-number{font-size:24px;font-weight:950;color:var(--text-primary);margin-top:11px}.admin-stat-label{font-size:10px;color:var(--text-secondary);margin-top:2px}.admin-stat-note{font-size:9px;color:var(--text-muted);margin-top:8px}.admin-stat-card.accent{border-color:color-mix(in srgb,var(--primary) 20%,var(--border))}.admin-stat-card.warning{border-color:color-mix(in srgb,var(--warning) 20%,var(--border))}.admin-stat-card.danger{border-color:color-mix(in srgb,var(--danger) 20%,var(--border))}
+.admin-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:11px}.admin-stat-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;box-shadow:var(--shadow-card);position:relative;overflow:hidden}.admin-stat-icon{width:38px;height:38px;border-radius:12px;background:var(--gold-bg);color:var(--gold);display:flex;align-items:center;justify-content:center;font-size:18px}.admin-stat-number{font-size:24px;font-weight:950;color:var(--text-primary);margin-top:11px}.admin-stat-label{font-size:10px;color:var(--text-secondary);margin-top:2px}.admin-stat-note{font-size:9px;color:var(--text-muted);margin-top:8px}.admin-stat-card.accent{border-color:color-mix(in srgb,var(--primary) 20%,var(--border))}.admin-stat-card.warning{border-color:color-mix(in srgb,var(--warning) 20%,var(--border))}.admin-stat-card.danger{border-color:color-mix(in srgb,var(--danger) 20%,var(--border))}
 .admin-panel-section{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow-card)}.admin-section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}.admin-section-title{font-size:15px;font-weight:900;color:var(--text-primary)}.admin-section-help{font-size:10px;color:var(--text-secondary);line-height:1.8}.admin-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.admin-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.admin-field{display:flex;flex-direction:column;gap:6px}.admin-field.full{grid-column:1/-1}.admin-field label{font-size:11px;font-weight:800;color:var(--text-secondary)}.admin-field input,.admin-field select,.admin-field textarea{width:100%;min-height:46px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text-primary);font-family:inherit;padding:9px 11px;outline:none}.admin-field textarea{min-height:100px;resize:vertical}.admin-field input:focus,.admin-field select:focus,.admin-field textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 10%,transparent)}
 .consultants-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}.consultant-manager-list{display:flex;flex-direction:column;gap:12px}.consultant-manager-card{border:1px solid var(--border);border-radius:16px;background:var(--bg);overflow:hidden}.consultant-manager-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;background:color-mix(in srgb,var(--surface) 88%,var(--primary) 12%);flex-wrap:wrap}.consultant-manager-title{display:flex;align-items:center;gap:8px;font-weight:900;color:var(--text-primary);font-size:13px}.consultant-default-pill{padding:5px 9px;border-radius:999px;background:var(--gold-bg);color:var(--gold-dark);font-size:9px;font-weight:900}.consultant-specialties{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 12px}.consultant-specialty{padding:6px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--border);font-size:9px;color:var(--text-secondary);display:flex;align-items:center;gap:5px}.consultant-specialty button{border:0;background:transparent;color:var(--danger);cursor:pointer}.consultant-add-specialty{display:grid;grid-template-columns:1fr 1fr auto;gap:7px;padding:0 14px 14px}.consultant-manager-actions{display:flex;gap:7px;flex-wrap:wrap}.consultant-empty{padding:22px;border:1px dashed var(--border);border-radius:14px;text-align:center;color:var(--text-secondary);font-size:11px}
 .color-theme-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.color-theme-card{min-width:0;border:1px solid var(--border);border-radius:18px;padding:16px;background:linear-gradient(180deg,var(--surface),var(--bg));box-shadow:var(--shadow-card)}.color-theme-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;font-weight:900;color:var(--text-primary);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)}.color-theme-title::after{content:"ویرایش مستقیم";font-size:9px;font-weight:800;color:var(--text-secondary);padding:4px 8px;border-radius:999px;background:var(--bg-secondary);border:1px solid var(--border)}.color-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.color-field{min-width:0;display:flex;flex-direction:column;gap:7px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}.color-field label{display:block;font-size:10px;line-height:1.6;color:var(--text-primary);font-weight:800;min-width:0}.color-field label span{display:block;margin-top:2px;color:var(--text-muted)!important;font-size:8px!important;direction:ltr;text-align:left}.color-field > div{display:grid!important;grid-template-columns:minmax(0,1fr) 48px!important;gap:6px!important;align-items:center!important}.color-field .theme-text{width:100%!important;min-width:0!important;height:38px!important;padding:0 9px!important;box-sizing:border-box!important;border:1px solid var(--border)!important;border-radius:9px!important;background:var(--bg)!important;color:var(--text-primary)!important;font-family:inherit!important;font-size:11px!important;direction:ltr!important;text-align:left!important;outline:none!important}.color-field .theme-text:focus{border-color:var(--primary)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--primary) 12%,transparent)!important}.color-field input[type=color]{width:48px!important;height:38px!important;padding:3px!important;border:1px solid var(--border)!important;border-radius:9px!important;background:var(--surface)!important;cursor:pointer!important}.theme-preview{margin-top:10px;border:1px solid var(--border);border-radius:14px;overflow:hidden}.theme-preview-head{padding:9px 11px;font-size:10px;font-weight:900}.theme-preview-body{padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px}.theme-preview-card{padding:10px;border-radius:10px;font-size:9px}.theme-preview-button{padding:9px;border-radius:10px;text-align:center;font-size:9px;font-weight:900}
@@ -2889,13 +3107,13 @@ if (!$isMockMode) {
 .admin-hero-sub{color:rgba(255,255,255,.68)!important;font-size:11px!important;line-height:1.9!important;max-width:620px!important}
 .admin-hero-badge{background:rgba(255,255,255,.10)!important;border:1px solid rgba(255,255,255,.16)!important;color:#fff!important;padding:8px 12px!important;border-radius:999px!important;font-size:10px!important;font-weight:800!important}
 .admin-stat-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important}
-.admin-stat-card{min-height:145px!important;padding:18px!important;border-radius:20px!important;background:rgba(255,255,255,.90)!important;border:1px solid rgba(6,78,78,.08)!important;box-shadow:0 12px 30px rgba(0,0,0,.055)!important;position:relative!important;overflow:hidden!important}
-.admin-stat-card:after{content:"";position:absolute;width:110px;height:110px;border-radius:50%;left:-58px;bottom:-64px;background:rgba(212,175,55,.08)}
+.admin-stat-card{min-height:104px!important;padding:12px 13px!important;border-radius:14px!important;background:rgba(255,255,255,.90)!important;border:1px solid rgba(6,78,78,.08)!important;box-shadow:0 12px 30px rgba(0,0,0,.055)!important;position:relative!important;overflow:hidden!important}
+.admin-stat-card:after{content:"";position:absolute;width:78px;height:78px;border-radius:50%;left:-42px;bottom:-46px;background:rgba(212,175,55,.08)}
 [data-theme="dark"] .admin-stat-card{background:#142524!important;border-color:#294646!important;box-shadow:0 12px 30px rgba(0,0,0,.24)!important}
-.admin-stat-icon{width:42px!important;height:42px!important;border-radius:14px!important;display:grid!important;place-items:center!important;background:var(--gold-bg)!important;font-size:18px!important;margin-bottom:10px!important}
-.admin-stat-number{font-size:27px!important;font-weight:1000!important;color:var(--text-primary)!important}
-.admin-stat-label{font-size:11px!important;font-weight:850!important;color:var(--text-primary)!important;margin-top:2px!important}
-.admin-stat-note{font-size:9px!important;color:var(--text-secondary)!important;margin-top:5px!important}
+.admin-stat-icon{width:31px!important;height:31px!important;border-radius:10px!important;display:grid!important;place-items:center!important;background:var(--gold-bg)!important;font-size:15px!important;margin-bottom:6px!important}
+.admin-stat-number{font-size:21px!important;font-weight:1000!important;color:var(--text-primary)!important;line-height:1.15!important}
+.admin-stat-label{font-size:10px!important;font-weight:850!important;color:var(--text-primary)!important;margin-top:1px!important;line-height:1.35!important}
+.admin-stat-note{font-size:8.5px!important;color:var(--text-secondary)!important;margin-top:3px!important;line-height:1.4!important}
 
 /* settings sections */
 #tab-contact .admin-card,#tab-password .admin-card,#tab-global .admin-card,#tab-onboarding .admin-card{padding:22px!important}
@@ -2905,13 +3123,14 @@ if (!$isMockMode) {
 .admin-field input,.admin-field select,.admin-field textarea{border-radius:12px!important;min-height:46px!important;background:var(--surface)!important}
 
 @media(max-width:1100px){.admin-body .tabs-container{grid-template-columns:repeat(5,minmax(0,1fr))!important}.admin-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-@media(max-width:650px){.admin-body .main-content{padding:0 10px 24px!important}.admin-command-header{padding:18px!important;border-radius:20px!important}.admin-command-title{font-size:19px!important}.admin-command-meta{margin-top:12px!important}.admin-body .tabs-container{grid-template-columns:repeat(3,minmax(0,1fr))!important;position:sticky!important;top:0!important;z-index:80!important}.admin-body .tab-btn{font-size:10px!important;padding:9px 5px!important}.admin-stat-grid{grid-template-columns:1fr 1fr!important}.admin-stat-card{min-height:125px!important;padding:14px!important}.admin-stat-number{font-size:22px!important}.admin-hero{padding:18px!important}.admin-hero-title{font-size:22px!important}}
+@media(max-width:650px){.admin-body .main-content{padding:0 10px 24px!important}.admin-command-header{padding:18px!important;border-radius:20px!important}.admin-command-title{font-size:19px!important}.admin-command-meta{margin-top:12px!important}.admin-body .tabs-container{grid-template-columns:repeat(3,minmax(0,1fr))!important;position:sticky!important;top:0!important;z-index:80!important}.admin-body .tab-btn{font-size:10px!important;padding:9px 5px!important}.admin-stat-grid{grid-template-columns:1fr 1fr!important;gap:9px!important}.admin-stat-card{min-height:92px!important;padding:10px 11px!important}.admin-stat-number{font-size:19px!important}.admin-hero{padding:18px!important}.admin-hero-title{font-size:22px!important}}
 @media(max-width:400px){.admin-body .tabs-container{grid-template-columns:repeat(2,minmax(0,1fr))!important}.admin-stat-grid{grid-template-columns:1fr!important}}
 
 </style>
 
 
 
+    <link rel="stylesheet" href="design-pro.css">
 </head>
 
 <body class="admin-body">
@@ -3086,6 +3305,180 @@ if (!$isMockMode) {
         🔑 تغییر رمز
     </button>
 
+    <button
+        class="tab-btn"
+        onclick="switchTab('bots')"
+    >
+        🤖 ربات و کانال
+    </button>
+
+    <button
+        class="tab-btn"
+        onclick="switchTab('images')"
+    >
+        🖼️ تصاویر
+    </button>
+
+    <button
+        class="tab-btn"
+        onclick="switchTab('promotions')"
+    >
+        📢 تبلیغات
+    </button>
+
+    <button
+        class="tab-btn"
+        onclick="switchTab('theme')"
+    >
+        🎨 تم و رنگ
+    </button>
+
+    <button
+        class="tab-btn"
+        onclick="switchTab('backup')"
+    >
+        💾 پشتیبان
+    </button>
+
+    <button
+        class="tab-btn"
+        onclick="switchTab('diagnostics')"
+    >
+        🔍 عیب‌یاب
+    </button>
+
+</div>
+
+
+<!-- =========================================================
+     BOTS & CHANNEL
+     ========================================================= -->
+
+<div
+    class="tab-content"
+    id="tab-bots"
+>
+<?php require __DIR__ . '/admin-bots.php'; ?>
+</div>
+
+
+<!-- =========================================================
+     IMAGES
+     ========================================================= -->
+
+<div
+    class="tab-content"
+    id="tab-images"
+>
+<?php require __DIR__ . '/admin-images.php'; ?>
+</div>
+
+
+<!-- =========================================================
+     PROMOTIONS
+     ========================================================= -->
+
+<div
+    class="tab-content"
+    id="tab-promotions"
+>
+<?php require __DIR__ . '/admin-promotions.php'; ?>
+</div>
+
+<!-- =========================================================
+     DIAGNOSTICS
+     ========================================================= -->
+
+<!--
+    محتوای تبِ عیب‌یاب (حدود ۲۴ کیلوبایت HTML و جاوااسکریپت) تنها زمانی
+    از سرور گرفته می‌شود که ادمین واقعاً این تب را باز کند. پیش‌تر این
+    حجم در هر بارگذاریِ پنل تولید و ارسال می‌شد، بی‌آن‌که بیشترِ اوقات
+    به آن نیازی باشد.
+-->
+<div
+    class="tab-content"
+    id="tab-diagnostics"
+>
+    <div id="diagnosticsLazyHost"></div>
+</div>
+
+<script>
+(function () {
+    var host = document.getElementById('diagnosticsLazyHost');
+    if (!host) return;
+
+    var loaded = false;
+
+    function inject() {
+        if (loaded) return;
+        loaded = true;
+
+        fetch('admin-diagnostics.php?action=view', { cache: 'no-store' })
+            .then(function (r) { return r.text(); })
+            .then(function (html) {
+                // اجرایِ اسکریپت‌های همراهِ پاسخ
+                var tmp = document.createElement('div');
+                tmp.innerHTML = html;
+
+                var scripts = tmp.querySelectorAll('script');
+                var codes = [];
+                for (var i = 0; i < scripts.length; i++) {
+                    codes.push(scripts[i].textContent);
+                    scripts[i].parentNode.removeChild(scripts[i]);
+                }
+
+                host.innerHTML = tmp.innerHTML;
+
+                for (var j = 0; j < codes.length; j++) {
+                    try {
+                        var sc = document.createElement('script');
+                        sc.textContent = codes[j];
+                        document.body.appendChild(sc);
+                    } catch (e) {}
+                }
+            })
+            .catch(function () {
+                host.innerHTML =
+                    '<div class="admin-field-help" style="color:var(--danger)">' +
+                    'خطا در بارگیریِ بخش عیب‌یاب.</div>';
+            });
+    }
+
+    // هنگام باز شدنِ تب
+    var navBtn = document.querySelector(".tab-btn[onclick*=\"'diagnostics'\"]");
+    if (navBtn) {
+        navBtn.addEventListener('click', function () { setTimeout(inject, 0); });
+    }
+
+    // و اگر از طریقِ هشِ صفحه مستقیماً به این تب آمد
+    window.addEventListener('hashchange', function () {
+        if (window.location.hash === '#diagnostics') inject();
+    });
+})();
+</script>
+
+
+<!-- =========================================================
+     THEME
+     ========================================================= -->
+
+<div
+    class="tab-content"
+    id="tab-theme"
+>
+<?php require __DIR__ . '/admin-theme-manager.php'; ?>
+</div>
+
+
+<!-- =========================================================
+     BACKUP
+     ========================================================= -->
+
+<div
+    class="tab-content"
+    id="tab-backup"
+>
+<?php require __DIR__ . '/admin-backup.php'; ?>
 </div>
 
 
@@ -3195,7 +3588,7 @@ if (!$isMockMode) {
         <div class="admin-stat-card accent"><div class="admin-stat-icon">🎯</div><div class="admin-stat-number" id="dashMatchedRequests">0</div><div class="admin-stat-label">درخواست دارای تطبیق</div><div class="admin-stat-note">درخواست‌هایی که فایل نزدیک دارند</div></div>
         <div class="admin-stat-card accent"><div class="admin-stat-icon">🧩</div><div class="admin-stat-number" id="dashMatchCount">0</div><div class="admin-stat-label">کل تطبیق‌ها</div><div class="admin-stat-note">مجموع فایل‌های پیشنهادی</div></div>
         <div class="admin-stat-card accent"><div class="admin-stat-icon">👥</div><div class="admin-stat-number" id="dashUsers">0</div><div class="admin-stat-label">کاربران ثبت‌شده</div><div class="admin-stat-note">Telegram IDهای ثبت‌شده</div></div>
-        <div class="admin-stat-card warning"><div class="admin-stat-icon">👁️</div><div class="admin-stat-number" id="dashVisits24h">0</div><div class="admin-stat-label">بازدید ۲۴ ساعت</div><div class="admin-stat-note">بر اساس tracker فعال</div></div>
+        <div class="admin-stat-card warning"><div class="admin-stat-icon">👁️</div><div class="admin-stat-number" id="dashVisits24h">0</div><div class="admin-stat-label">ورود ۲۴ ساعت اخیر</div><div class="admin-stat-note">بر اساس tracker فعال</div></div>
         <div class="admin-stat-card"><div class="admin-stat-icon">📈</div><div class="admin-stat-number" id="dashPublishedVip">0</div><div class="admin-stat-label">VIP منتشرشده</div><div class="admin-stat-note">فایل VIP فعال</div></div>
         <div class="admin-stat-card"><div class="admin-stat-icon">📩</div><div class="admin-stat-number" id="dashNewRequests">0</div><div class="admin-stat-label">درخواست‌های اخیر</div><div class="admin-stat-note">۱۰ درخواست آخر</div></div>
         <div class="admin-stat-card danger"><div class="admin-stat-icon">⏳</div><div class="admin-stat-number" id="dashPendingReview">0</div><div class="admin-stat-label">در انتظار بررسی</div><div class="admin-stat-note">آگهی + درخواست</div></div>
@@ -3227,19 +3620,6 @@ if (!$isMockMode) {
         </div>
 
         <div id="usersListContainer"></div>
-
-    </div>
-
-    <div class="admin-card">
-
-        <div class="card-header">
-            <span class="card-title">
-                👣 بازدیدهای اخیر سایت (شامل بازدیدکننده‌های ناشناس)
-            </span>
-            <button type="button" class="btn-secondary" onclick="loadRecentVisits()" style="padding:4px 10px;font-size:12px;">↻ بروزرسانی</button>
-        </div>
-
-        <div id="recentVisitsContainer" style="padding:0 16px 16px;"></div>
 
     </div>
 
@@ -3735,6 +4115,29 @@ if (!$isMockMode) {
 
                 </div>
 
+                <!-- بله -->
+
+                <div class="contact-admin-field">
+
+                    <label for="adminContactBale">
+                        لینک کانال بله
+                    </label>
+
+                    <input
+                        type="url"
+                        id="adminContactBale"
+                        placeholder="https://ble.ir/..."
+                        dir="ltr"
+                    >
+
+                    <div class="contact-admin-help">
+                        مثال:
+                        https://ble.ir/melkino
+                    </div>
+
+                </div>
+
+
 
                 <!-- لینکدین -->
 
@@ -3758,23 +4161,153 @@ if (!$isMockMode) {
 
                 <div class="contact-admin-field full">
 
-                    <label for="adminContactMapUrl">
-                        لینک نقشه / Embed Map
+                    <label for="adminContactNeshanKey">
+                        کلید API نقشه‌ی نشان
                     </label>
 
-                    <textarea
-                        id="adminContactMapUrl"
-                        placeholder="لینک Embed نقشه را اینجا وارد کنید..."
+                    <input
+                        type="text"
+                        id="adminContactNeshanKey"
+                        placeholder="کلید دریافت‌شده از پنل توسعه‌دهندگان نشان"
                         dir="ltr"
-                    ></textarea>
+                    >
 
                     <div class="contact-admin-help">
-                        لینک Embed نقشه دفتر را وارد کنید تا در صفحه ارتباط با ما نمایش داده شود.
+                        از
+                        platform.neshan.org
+                        ثبت‌نام رایگان کنید و یک کلید از نوع «نقشه وب» بسازید.
+                        برای امنیت بیشتر، دامنه‌ی سایت خود را در فیلد دامنه‌های مجاز
+                        همان کلید وارد کنید.
                     </div>
 
                 </div>
 
             </div>
+
+
+            <!-- =====================================================
+                 کارت‌های سفارشیِ صفحه‌ی «ارتباط با ما»
+                 ===================================================== -->
+
+            <div class="consultant-admin-card" style="border-style:solid;">
+
+                <div class="consultants-toolbar">
+
+                    <div>
+
+                        <div class="consultant-admin-title">
+                            🧩 کارت‌های سفارشیِ «ارتباط با ما»
+                        </div>
+
+                        <div class="consultant-admin-help">
+                            ۵ کارتِ خالی در صفحه‌ی «ارتباط با ما» قرار دارد. برای هر کارت
+                            می‌توانید متنِ دکمه، نامِ پیام‌رسان، آدرسِ کانال و آیکون را
+                            تنظیم کنید. کارتی که «متن» یا «آدرسِ کانال» نداشته باشد،
+                            در صفحه نمایش داده نمی‌شود.
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div
+                    id="customCardsManager"
+                    class="consultant-manager-list"
+                ></div>
+
+            </div>
+
+
+
+            <!-- =====================================================
+                 انتخابِ موقعیت دفتر روی نقشه‌ی نشان
+                 ===================================================== -->
+
+            <div class="consultant-admin-card" style="border-style:solid;">
+
+                <div class="consultants-toolbar">
+
+                    <div>
+
+                        <div class="consultant-admin-title">
+                            📍 موقعیت دفتر روی نقشه
+                        </div>
+
+                        <div class="consultant-admin-help">
+                            نشانگر را روی نقشه بکشید (یا روی هر نقطه کلیک کنید) تا
+                            موقعیت دفتر انتخاب شود. برای جابه‌جاییِ بهتر می‌توانید
+                            ابتدا روی نقشه بزرگ‌نمایی کنید. این نقطه عیناً در صفحه
+                            «ارتباط با ما» نمایش داده می‌شود.
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div
+                    id="officeMapPicker"
+                    style="
+                        width:100%;
+                        height:340px;
+                        border-radius:12px;
+                        overflow:hidden;
+                        margin-top:6px;
+                        background:var(--bg-secondary);
+                    "
+                ></div>
+
+                <div
+                    style="
+                        display:flex;
+                        gap:14px;
+                        flex-wrap:wrap;
+                        align-items:center;
+                        margin-top:14px;
+                        font-size:12px;
+                    "
+                >
+
+                    <div class="admin-field" style="min-width:150px">
+                        <label>عرض جغرافیایی (Lat)</label>
+                        <input
+                            id="adminOfficeLat"
+                            dir="ltr"
+                            placeholder="35.6997"
+                            oninput="onOfficeCoordChanged()"
+                        >
+                    </div>
+
+                    <div class="admin-field" style="min-width:150px">
+                        <label>طول جغرافیایی (Lng)</label>
+                        <input
+                            id="adminOfficeLng"
+                            dir="ltr"
+                            placeholder="51.3380"
+                            oninput="onOfficeCoordChanged()"
+                        >
+                    </div>
+
+                    <div class="admin-field" style="min-width:120px">
+                        <label>بزرگ‌نمایی</label>
+                        <input
+                            id="adminOfficeZoom"
+                            type="number"
+                            min="3"
+                            max="19"
+                            dir="ltr"
+                            placeholder="15"
+                        >
+                    </div>
+
+                    <span
+                        id="officeMapState"
+                        style="color:var(--text-secondary)"
+                    ></span>
+
+                </div>
+
+            </div>
+
 
 
             <!-- =====================================================
@@ -4042,6 +4575,126 @@ let adsData =
     );
     ?>;
 
+// =========================================================
+// فراداده‌ی بارگذاریِ آگهی‌ها و درخواست‌ها
+// =========================================================
+// چون حالا فقط جدیدترین آگهی‌ها همراه صفحه می‌آیند، اعدادِ داشبورد
+// نباید از روی همین زیرمجموعه حساب شوند؛ برای همین آمارِ واقعی از
+// سمت سرور اینجا منتشر می‌شود.
+window.MELKINO_ADS_META = {
+    loaded:  <?= (int)$adsLoadedCount ?>,
+    total:   <?= (int)$adsTotalCount ?>,
+    hasMore: <?= $adsHasMore ? 'true' : 'false' ?>,
+    error:   <?= json_encode((string)$adsLoadError, JSON_UNESCAPED_UNICODE) ?>
+};
+window.MELKINO_AD_TOTALS = <?= json_encode($adsTotals, JSON_UNESCAPED_UNICODE) ?>;
+window.MELKINO_REQUESTS_META = {
+    loaded: <?= count($requestsData) ?>,
+    total:  <?= (int)($requestsTotalCount ?? count($requestsData)) ?>
+};
+
+// =========================================================
+// اطلاع‌رسانی و بارگذاریِ مرحله‌ای در سمتِ مرورگر
+// =========================================================
+(function () {
+    var M = window.MELKINO_ADS_META || {};
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function makeBox(bg, html) {
+        var d = document.createElement('div');
+        d.setAttribute(
+            'style',
+            'position:fixed;left:14px;bottom:14px;z-index:10050;max-width:min(430px,calc(100vw - 28px));' +
+            'background:' + bg + ';color:#fff;border-radius:14px;padding:12px 14px;' +
+            'font-family:inherit;font-size:13px;line-height:1.8;direction:rtl;' +
+            'box-shadow:0 12px 34px rgba(0,0,0,.28)'
+        );
+        d.innerHTML = html;
+        document.body.appendChild(d);
+        return d;
+    }
+
+    function loadRest(box, btn) {
+        btn.disabled = true;
+        btn.textContent = 'در حال بارگذاری…';
+
+        function step() {
+            var offset = adsData.length;
+            fetch('admin-panel.php?action=ads_chunk&offset=' + offset + '&limit=200', { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (!j || !j.success) {
+                        btn.disabled = false;
+                        btn.textContent = 'خطا: ' + ((j && j.message) || 'پاسخ نامعتبر');
+                        return;
+                    }
+                    var arr = j.ads || [];
+                    for (var i = 0; i < arr.length; i++) { adsData.push(arr[i]); }
+                    window.MELKINO_ADS_META.loaded = adsData.length;
+
+                    try { if (typeof renderDashboard === 'function') renderDashboard(); } catch (e) {}
+                    try { if (typeof renderAds === 'function') renderAds(); } catch (e) {}
+
+                    if (j.hasMore) {
+                        btn.textContent = 'در حال بارگذاری… (' + adsData.length + ')';
+                        step();
+                        return;
+                    }
+
+                    window.MELKINO_ADS_META.hasMore = false;
+                    if (box.parentNode) { box.parentNode.removeChild(box); }
+                })
+                .catch(function () {
+                    btn.disabled = false;
+                    btn.textContent = 'خطا در ارتباط با سرور';
+                });
+        }
+
+        step();
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+
+        // اگر بارگذاریِ آگهی‌ها با خطا مواجه شده باشد، دیگر پنهانش نمی‌کنیم؛
+        // ادمین باید بداند پنل به داده‌ی واقعی وصل نیست.
+        if (M.error) {
+            makeBox(
+                '#b00020',
+                '<b>⚠️ آگهی‌ها از پایگاه داده خوانده نشدند</b><br>' +
+                'پنل در حال نمایشِ داده‌ی نمونه است. علت فنی:' +
+                '<div style="margin-top:6px;font-size:11px;opacity:.9;direction:ltr;text-align:left">' +
+                esc(M.error) + '</div>'
+            );
+            return;
+        }
+
+        if (!M.hasMore) { return; }
+
+        var box = makeBox(
+            '#0b5d59',
+            '<b>تنها ' + Number(M.loaded) + ' آگهی از ' + Number(M.total) + ' آگهی لود شده است.</b><br>' +
+            '<span style="font-size:11px;opacity:.85">' +
+            'برای اینکه پنل سریع بالا بیاید، فقط جدیدترین‌ها همراه صفحه آمده‌اند.' +
+            '</span>'
+        );
+
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = '⬇️ بارگذاری بقیه (' + Number(Number(M.total) - Number(M.loaded)) + ')';
+        btn.setAttribute(
+            'style',
+            'margin-top:9px;border:0;background:#fff;color:#0b5d59;border-radius:9px;' +
+            'padding:7px 13px;font-family:inherit;font-weight:800;cursor:pointer;font-size:12px'
+        );
+        box.appendChild(btn);
+        btn.onclick = function () { loadRest(box, btn); };
+    });
+})();
+
 let requestsData =
     <?php
     echo json_encode(
@@ -4066,6 +4719,343 @@ let appData = {};
 
 const MELKINO_CONTACT_STORAGE_KEY =
     'melkino_contact_info';
+
+
+/* =========================================================
+   انتخابِ موقعیت دفتر روی نقشه‌ی نشان
+   ========================================================= */
+
+let neshanSdkPromiseAdmin = null;
+
+let officePickerMap = null;
+
+let officePickerMarker = null;
+
+let officePickerBusy = false;
+
+
+function loadNeshanSdkAdmin() {
+
+    if (neshanSdkPromiseAdmin) {
+        return neshanSdkPromiseAdmin;
+    }
+
+    neshanSdkPromiseAdmin =
+        new Promise(function (resolve, reject) {
+
+            const css =
+                document.createElement('link');
+
+            css.rel =
+                'stylesheet';
+
+            css.href =
+                'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.css';
+
+            document.head.appendChild(css);
+
+
+            const script =
+                document.createElement('script');
+
+            script.async =
+                true;
+
+            script.src =
+                'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.js';
+
+            script.onload =
+                function () {
+                    resolve();
+                };
+
+            script.onerror =
+                function () {
+                    reject(
+                        new Error(
+                            'Neshan SDK failed to load'
+                        )
+                    );
+                };
+
+            document.head.appendChild(script);
+        });
+
+    return neshanSdkPromiseAdmin;
+}
+
+
+function getOfficeCoordValue(id) {
+
+    const el =
+        document.getElementById(id);
+
+    if (!el) {
+        return null;
+    }
+
+    const raw =
+        String(el.value).trim();
+
+    if (raw === '') {
+        return null;
+    }
+
+    const num =
+        Number(raw);
+
+    return isFinite(num)
+        ? num
+        : null;
+}
+
+
+function getOfficeZoomValue() {
+
+    const el =
+        document.getElementById(
+            'adminOfficeZoom'
+        );
+
+    if (!el) {
+        return 15;
+    }
+
+    const num =
+        parseInt(el.value, 10);
+
+    if (!isFinite(num)) {
+        return 15;
+    }
+
+    if (num < 3) {
+        return 3;
+    }
+
+    if (num > 19) {
+        return 19;
+    }
+
+    return num;
+}
+
+
+function setOfficeState(text) {
+
+    const el =
+        document.getElementById(
+            'officeMapState'
+        );
+
+    if (el) {
+        el.textContent =
+            text;
+    }
+}
+
+
+function initOfficeMapPicker() {
+
+    const key =
+        getContactFieldValue(
+            'adminContactNeshanKey'
+        );
+
+    const host =
+        document.getElementById(
+            'officeMapPicker'
+        );
+
+    if (!host) {
+        return;
+    }
+
+
+    if (!key) {
+
+        setOfficeState(
+            'برای نمایشِ نقشه، ابتدا کلید API نشان را وارد و ذخیره کنید.'
+        );
+
+        return;
+    }
+
+
+    if (officePickerBusy) {
+        return;
+    }
+
+    officePickerBusy =
+        true;
+
+    setOfficeState(
+        'در حال بارگذاری نقشه…'
+    );
+
+
+    let lat =
+        getOfficeCoordValue('adminOfficeLat');
+
+    let lng =
+        getOfficeCoordValue('adminOfficeLng');
+
+
+    /* مرکزِ پیش‌فرض در صورت نبودِ مختصات: شاهرود */
+
+    if (lat === null || lng === null) {
+
+        lat =
+            35.5729;
+
+        lng =
+            54.9570;
+    }
+
+
+    loadNeshanSdkAdmin()
+        .then(function () {
+
+            if (typeof L === 'undefined') {
+
+                setOfficeState(
+                    'کتابخانه‌ی نقشه بارگیری نشد.'
+                );
+
+                officePickerBusy =
+                    false;
+
+                return;
+            }
+
+
+            if (officePickerMap) {
+
+                officePickerMap.remove();
+
+                officePickerMap =
+                    null;
+            }
+
+
+            officePickerMap =
+                new L.Map(
+                    'officeMapPicker',
+                    {
+                        key: key,
+                        maptype: 'dreamy',
+                        center: [lat, lng],
+                        zoom: getOfficeZoomValue(),
+                        poi: true,
+                        traffic: false
+                    }
+                );
+
+
+            officePickerMarker =
+                L.marker(
+                    [lat, lng],
+                    { draggable: true }
+                ).addTo(officePickerMap);
+
+
+            function handleMove(pos) {
+
+                const latEl =
+                    document.getElementById(
+                        'adminOfficeLat'
+                    );
+
+                const lngEl =
+                    document.getElementById(
+                        'adminOfficeLng'
+                    );
+
+                if (latEl) {
+                    latEl.value =
+                        pos.lat.toFixed(6);
+                }
+
+                if (lngEl) {
+                    lngEl.value =
+                        pos.lng.toFixed(6);
+                }
+
+                setOfficeState(
+                    'موقعیت انتخاب شد — برای ثبت، دکمه‌ی ذخیره را بزنید.'
+                );
+            }
+
+
+            officePickerMarker.on(
+                'dragend',
+                function () {
+
+                    handleMove(
+                        officePickerMarker.getLatLng()
+                    );
+                }
+            );
+
+
+            officePickerMap.on(
+                'click',
+                function (event) {
+
+                    officePickerMarker.setLatLng(
+                        event.latlng
+                    );
+
+                    handleMove(
+                        event.latlng
+                    );
+                }
+            );
+
+
+            setOfficeState(
+                'نشانگر را بکشید یا روی نقطه‌ی مورد نظر کلیک کنید.'
+            );
+
+            officePickerBusy =
+                false;
+        })
+        .catch(function () {
+
+            setOfficeState(
+                'بارگیری نقشه ناموفق بود؛ کلید API و دسترسی اینترنت را بررسی کنید.'
+            );
+
+            officePickerBusy =
+                false;
+        });
+}
+
+
+function onOfficeCoordChanged() {
+
+    const lat =
+        getOfficeCoordValue('adminOfficeLat');
+
+    const lng =
+        getOfficeCoordValue('adminOfficeLng');
+
+
+    if (
+        officePickerMap &&
+        officePickerMarker &&
+        lat !== null &&
+        lng !== null
+    ) {
+
+        officePickerMarker.setLatLng(
+            [lat, lng]
+        );
+
+        officePickerMap.panTo(
+            [lat, lng]
+        );
+    }
+}
 
 
 function getDefaultContactSettings() {
@@ -4096,50 +5086,240 @@ function getDefaultContactSettings() {
         linkedin:
             '',
 
-        mapUrl:
+        workingHours:
             '',
 
-        workingHours:
-            ''
+        neshanKey:
+            '',
+
+        officeLat:
+            null,
+
+        officeLng:
+            null,
+
+        officeZoom:
+            15,
+
+        bale:
+            '',
+
+        customCards: []
     };
 }
 
 
-function loadContactSettingsData() {
+let customCardsData = [];
+
+
+function customCardsDefaultArray() {
+
+    const list = [];
+
+    for (let i = 0; i < 5; i++) {
+
+        list.push({
+            label: '',
+            messenger: '',
+            url: '',
+            icon: ''
+        });
+    }
+
+    return list;
+}
+
+
+function customCardEsc(value) {
+
+    return String(
+        value ?? ''
+    ).replace(/[&<>"']/g, function (ch) {
+
+        return {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[ch];
+    });
+}
+
+
+function updateCustomCard(index, key, value) {
+
+    if (!customCardsData[index]) {
+
+        customCardsData[index] = {
+            label: '',
+            messenger: '',
+            url: '',
+            icon: ''
+        };
+    }
+
+    customCardsData[index][key] = value;
+}
+
+
+function renderCustomCards() {
+
+    const host =
+        document.getElementById(
+            'customCardsManager'
+        );
+
+    if (!host) {
+        return;
+    }
+
+    let html = '';
+
+    for (let i = 0; i < 5; i++) {
+
+        const card =
+            customCardsData[i] ||
+            { label: '', messenger: '', url: '', icon: '' };
+
+        const previewIcon =
+            card.icon
+                ? '<img src="' + customCardEsc(card.icon) + '" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;background:var(--bg-secondary);flex-shrink:0">'
+                : '<div style="width:34px;height:34px;border-radius:8px;background:var(--bg-secondary);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px">🌐</div>';
+
+        html +=
+            '<div class="consultant-item" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;align-items:end;padding:14px;border:1px solid var(--border);border-radius:12px;margin-bottom:12px">' +
+
+            '<div class="admin-field">' +
+            '<label>کارت ' + (i + 1) + ' — متنِ نمایشی</label>' +
+            '<input placeholder="مثال: کانال ایتا" value="' + customCardEsc(card.label) + '" oninput="updateCustomCard(' + i + ',\'label\',this.value)">' +
+            '</div>' +
+
+            '<div class="admin-field">' +
+            '<label>نام پیام‌رسان</label>' +
+            '<input placeholder="مثال: ایتا" value="' + customCardEsc(card.messenger) + '" oninput="updateCustomCard(' + i + ',\'messenger\',this.value)">' +
+            '</div>' +
+
+            '<div class="admin-field">' +
+            '<label>آدرسِ کانال / لینک</label>' +
+            '<input dir="ltr" placeholder="https://eitaa.com/..." value="' + customCardEsc(card.url) + '" oninput="updateCustomCard(' + i + ',\'url\',this.value)">' +
+            '</div>' +
+
+            '<div class="admin-field">' +
+            '<label>آیکونِ پیام‌رسان</label>' +
+            '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+            previewIcon +
+            '<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="uploadCustomCardIcon(' + i + ', this)" style="font-size:11px;max-width:170px">' +
+            '</div>' +
+            '</div>' +
+
+            '</div>';
+    }
+
+    host.innerHTML = html;
+}
+
+
+async function uploadCustomCardIcon(index, input) {
+
+    const file =
+        input.files && input.files[0];
+
+    if (!file) {
+        return;
+    }
+
+    const formData =
+        new FormData();
+
+    formData.append(
+        'icon',
+        file
+    );
+
+    try {
+
+        const response =
+            await fetch(
+                'upload-card-icon.php',
+                {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }
+            );
+
+        const result =
+            await response.json();
+
+        if (result && result.success) {
+
+            updateCustomCard(
+                index,
+                'icon',
+                result.path
+            );
+
+            renderCustomCards();
+
+        } else {
+
+            alert(
+                'آپلود آیکون ناموفق بود: ' +
+                (result && result.message
+                    ? result.message
+                    : 'خطای ناشناخته')
+            );
+        }
+
+    } catch (error) {
+
+        console.error(
+            'upload card icon error:',
+            error
+        );
+
+        alert(
+            'خطا در ارتباط با سرور هنگام آپلود آیکون.'
+        );
+    }
+}
+
+
+async function loadContactSettingsData() {
 
     const defaults =
         getDefaultContactSettings();
 
 
-    const saved =
-        localStorage.getItem(
-            MELKINO_CONTACT_STORAGE_KEY
-        );
+    let merged =
+        Object.assign({}, defaults);
 
 
-    if (!saved) {
-        return defaults;
-    }
-
+    /* ۱) ابتدا localStorage (سازگاری با نسخه‌های قبل) */
 
     try {
 
-        const parsed =
-            JSON.parse(saved);
+        const saved =
+            localStorage.getItem(
+                MELKINO_CONTACT_STORAGE_KEY
+            );
 
+        if (saved) {
 
-        if (
-            !parsed ||
-            typeof parsed !== 'object'
-        ) {
-            return defaults;
+            const parsed =
+                JSON.parse(saved);
+
+            if (parsed && typeof parsed === 'object') {
+
+                merged =
+                    Object.assign(
+                        {},
+                        merged,
+                        parsed
+                    );
+            }
         }
-
-
-        return {
-            ...defaults,
-            ...parsed
-        };
 
     } catch (error) {
 
@@ -4147,125 +5327,68 @@ function loadContactSettingsData() {
             'خطا در خواندن اطلاعات تماس:',
             error
         );
-
-        return defaults;
     }
+
+
+    /* ۲) سپس سرور — اولویت با مقدارِ سرور است
+          چون برای همه‌ی بازدیدکنندگان یکسان است */
+
+    try {
+
+        const response =
+            await fetch(
+                'save-contact-settings.php',
+                {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                }
+            );
+
+        if (response.ok) {
+
+            const result =
+                await response.json();
+
+            if (
+                result &&
+                result.success &&
+                result.data &&
+                typeof result.data === 'object'
+            ) {
+
+                merged =
+                    Object.assign(
+                        {},
+                        merged,
+                        result.data
+                    );
+            }
+        }
+
+    } catch (error) {
+
+        console.warn(
+            'دریافت اطلاعات تماس از سرور ناموفق بود:',
+            error
+        );
+    }
+
+
+    if (!Array.isArray(merged.customCards)) {
+        merged.customCards = [];
+    }
+
+    return merged;
 }
 
 
-function setContactFieldValue(
-    id,
-    value
-) {
-
-    const element =
-        document.getElementById(id);
-
-
-    if (!element) {
-        return;
-    }
-
-
-    element.value =
-        value ?? '';
-}
-
-
-function getContactFieldValue(id) {
-
-    const element =
-        document.getElementById(id);
-
-
-    if (!element) {
-        return '';
-    }
-
-
-    return element.value.trim();
-}
-
-
-function updateContactPreview() {
-
-    const agencyName =
-        getContactFieldValue(
-            'adminContactAgencyName'
-        );
-
-    const phone =
-        getContactFieldValue(
-            'adminContactPhone'
-        );
-
-    const telegram =
-        getContactFieldValue(
-            'adminContactTelegram'
-        );
-
-    const instagram =
-        getContactFieldValue(
-            'adminContactInstagram'
-        );
-
-
-    const previewAgencyName =
-        document.getElementById(
-            'previewAgencyName'
-        );
-
-    const previewPhone =
-        document.getElementById(
-            'previewPhone'
-        );
-
-    const previewTelegram =
-        document.getElementById(
-            'previewTelegram'
-        );
-
-    const previewInstagram =
-        document.getElementById(
-            'previewInstagram'
-        );
-
-
-    if (previewAgencyName) {
-
-        previewAgencyName.textContent =
-            agencyName || '-';
-    }
-
-
-    if (previewPhone) {
-
-        previewPhone.textContent =
-            phone || '-';
-    }
-
-
-    if (previewTelegram) {
-
-        previewTelegram.textContent =
-            telegram ||
-            'ثبت نشده';
-    }
-
-
-    if (previewInstagram) {
-
-        previewInstagram.textContent =
-            instagram ||
-            'ثبت نشده';
-    }
-}
-
-
-function loadContactSettings() {
+async function loadContactSettings() {
 
     const data =
-        loadContactSettingsData();
+        await loadContactSettingsData();
 
 
     setContactFieldValue(
@@ -4314,9 +5437,62 @@ function loadContactSettings() {
     );
 
     setContactFieldValue(
-        'adminContactMapUrl',
-        data.mapUrl
+        'adminContactNeshanKey',
+        data.neshanKey
     );
+
+
+    setContactFieldValue(
+        'adminOfficeLat',
+        (data.officeLat === null || data.officeLat === undefined)
+            ? ''
+            : String(data.officeLat)
+    );
+
+    setContactFieldValue(
+        'adminOfficeLng',
+        (data.officeLng === null || data.officeLng === undefined)
+            ? ''
+            : String(data.officeLng)
+    );
+
+    setContactFieldValue(
+        'adminOfficeZoom',
+        String(data.officeZoom || 15)
+    );
+
+
+    initOfficeMapPicker();
+
+
+    setContactFieldValue(
+        'adminContactBale',
+        data.bale
+    );
+
+
+    const incomingCards =
+        Array.isArray(data.customCards)
+            ? data.customCards
+            : [];
+
+    customCardsData =
+        customCardsDefaultArray();
+
+    for (let i = 0; i < 5; i++) {
+
+        const card =
+            incomingCards[i] || {};
+
+        customCardsData[i] = {
+            label: String(card.label || ''),
+            messenger: String(card.messenger || ''),
+            url: String(card.url || ''),
+            icon: String(card.icon || '')
+        };
+    }
+
+    renderCustomCards();
 
 
     updateContactPreview();
@@ -4339,7 +5515,7 @@ function loadContactSettings() {
 }
 
 
-function saveContactSettings() {
+async function saveContactSettings() {
 
     const telegram =
         getContactFieldValue(
@@ -4349,6 +5525,11 @@ function saveContactSettings() {
     const instagram =
         getContactFieldValue(
             'adminContactInstagram'
+        );
+
+    const bale =
+        getContactFieldValue(
+            'adminContactBale'
         );
 
 
@@ -4385,20 +5566,35 @@ function saveContactSettings() {
         instagram:
             instagram,
 
+        bale:
+            bale,
+
         linkedin:
             getContactFieldValue(
                 'adminContactLinkedin'
             ),
 
-        mapUrl:
+        neshanKey:
             getContactFieldValue(
-                'adminContactMapUrl'
+                'adminContactNeshanKey'
             ),
+
+        officeLat:
+            getOfficeCoordValue('adminOfficeLat'),
+
+        officeLng:
+            getOfficeCoordValue('adminOfficeLng'),
+
+        officeZoom:
+            getOfficeZoomValue(),
 
         workingHours:
             getContactFieldValue(
                 'adminContactWorkingHours'
-            )
+            ),
+
+        customCards:
+            customCardsData
     };
 
 
@@ -4428,6 +5624,62 @@ function saveContactSettings() {
     }
 
 
+    if (
+        bale &&
+        !/^https?:\/\//i.test(bale)
+    ) {
+
+        alert(
+            '⚠️ لینک بله باید با http:// یا https:// شروع شود.'
+        );
+
+        return;
+    }
+
+
+    /* بررسیِ آدرسِ کارت‌های سفارشی */
+
+    for (let i = 0; i < customCardsData.length; i++) {
+
+        const card =
+            customCardsData[i] || {};
+
+        const cardUrl =
+            String(card.url || '').trim();
+
+        const cardLabel =
+            String(card.label || '').trim();
+
+        if (cardUrl && !/^https?:\/\//i.test(cardUrl)) {
+
+            alert(
+                '⚠️ آدرسِ کارت ' + (i + 1) +
+                ' باید با http:// یا https:// شروع شود.'
+            );
+
+            return;
+        }
+
+        if (cardLabel && !cardUrl) {
+
+            alert(
+                '⚠️ کارت ' + (i + 1) +
+                ' متن دارد اما آدرس ندارد. لطفاً آدرس را هم وارد کنید.'
+            );
+
+            return;
+        }
+    }
+
+
+    const state =
+        document.getElementById(
+            'contactSaveState'
+        );
+
+
+    /* ۱) ذخیره‌ی محلی (سازگاری با قبل) */
+
     try {
 
         localStorage.setItem(
@@ -4437,30 +5689,84 @@ function saveContactSettings() {
             )
         );
 
+    } catch (error) {
+
+        console.error(
+            'خطا در ذخیره‌ی محلی اطلاعات تماس:',
+            error
+        );
+    }
+
+
+    /* ۲) ذخیره روی سرور — این همان چیزی است که
+          بازدیدکنندگان واقعاً می‌بینند */
+
+    try {
+
+        if (state) {
+
+            state.textContent =
+                'در حال ذخیره روی سرور…';
+
+            state.style.color =
+                'var(--text-secondary)';
+        }
+
+        const response =
+            await fetch(
+                'save-contact-settings.php',
+                {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(
+                        contactData
+                    )
+                }
+            );
+
+        const result =
+            await response.json();
 
         updateContactPreview();
 
 
-        const state =
-            document.getElementById(
-                'contactSaveState'
+        if (result && result.success) {
+
+            if (state) {
+
+                state.textContent =
+                    '✅ اطلاعات با موفقیت روی سرور ذخیره شد';
+
+                state.style.color =
+                    '#059669';
+            }
+
+            alert(
+                '✅ اطلاعات تماس با موفقیت روی سرور ذخیره شد و در صفحه «ارتباط با ما» نمایش داده می‌شود.'
             );
+
+            return;
+        }
 
 
         if (state) {
 
             state.textContent =
-                '✅ اطلاعات با موفقیت ذخیره شد';
+                '❌ ذخیره روی سرور ناموفق بود';
 
             state.style.color =
-                '#059669';
+                '#dc2626';
         }
 
-
         alert(
-            '✅ اطلاعات تماس ملکینو با موفقیت ذخیره شد.'
+            '❌ ذخیره روی سرور انجام نشد:\n' +
+            (result && result.message
+                ? result.message
+                : 'خطای ناشناخته')
         );
-
 
     } catch (error) {
 
@@ -4470,8 +5776,17 @@ function saveContactSettings() {
         );
 
 
+        if (state) {
+
+            state.textContent =
+                '❌ خطا در ارتباط با سرور';
+
+            state.style.color =
+                '#dc2626';
+        }
+
         alert(
-            '❌ ذخیره اطلاعات تماس انجام نشد.'
+            '❌ ارتباط با سرور برقرار نشد؛ اطلاعات فقط در این مرورگر ذخیره شد.'
         );
     }
 }
@@ -4489,8 +5804,9 @@ function bindContactLivePreview() {
         'adminContactWhatsapp',
         'adminContactTelegram',
         'adminContactInstagram',
+        'adminContactBale',
         'adminContactLinkedin',
-        'adminContactMapUrl'
+        'adminContactNeshanKey'
 
     ];
 
@@ -4756,18 +6072,6 @@ async function saveAdsToFile() {
 }
 
 
-async function loadRecentVisits(){
-    const container=document.getElementById('recentVisitsContainer'); if(!container)return;
-    container.innerHTML='<div class="consultant-empty">در حال بارگذاری بازدیدها...</div>';
-    try{
-        const r=await fetch('page-visits.php?action=list',{cache:'no-store'}); const data=await r.json();
-        const visits=Array.isArray(data.visits)?data.visits:[];
-        if(!visits.length){container.innerHTML='<div class="consultant-empty">هنوز بازدیدی ثبت نشده.</div>';return;}
-        container.innerHTML=`<div class="table-wrap"><table class="users-table"><thead><tr><th>تاریخ و ساعت</th><th>صفحه</th><th>Telegram ID</th><th>IP</th></tr></thead><tbody>${
-            visits.map(v=>`<tr><td>${escapeHtml(v.visited_at||'—')}</td><td dir="ltr">${escapeHtml(v.path||'—')}</td><td dir="ltr">${escapeHtml(v.telegram_id||'ناشناس')}</td><td dir="ltr">${escapeHtml(v.ip_address||'—')}</td></tr>`).join('')
-        }</tbody></table></div>`;
-    }catch(e){container.innerHTML='<div class="consultant-empty">خطا در بارگذاری بازدیدها.</div>';}
-}
 
 async function saveAndExit() {
 
@@ -4801,22 +6105,28 @@ async function loadAdminUsers(){
         const users=Array.isArray(data.users)?data.users:[];
         if(!users.length){container.innerHTML='<div class="consultant-empty">هنوز کاربری در لاگ ورود ثبت نشده است.</div>';return;}
         users.sort((a,b)=>String(b.last_login||'').localeCompare(String(a.last_login||'')));
-        container.innerHTML=`<div class="table-wrap"><table class="users-table"><thead><tr><th>وضعیت</th><th>Telegram ID</th><th>Username</th><th>نام</th><th>شماره تماس</th><th>اولین ورود</th><th>آخرین ورود</th><th>تعداد ورود</th><th></th></tr></thead><tbody>${
+        container.innerHTML=`<div class="table-wrap"><table class="users-table"><thead><tr><th>وضعیت</th><th>Telegram ID</th><th>Bale ID</th><th>Username</th><th>نام</th><th>شماره تماس</th><th>پلتفرم آخر</th><th>IP آخر</th><th>اولین ورود</th><th>آخرین ورود</th><th>تعداد ورود</th><th></th></tr></thead><tbody>${
             users.map(u=>{
                 const active = Number(u.is_active ?? 1) !== 0;
+                const platformLabel = (u.last_platform === 'telegram') ? 'تلگرام'
+                                    : (u.last_platform === 'bale') ? 'بله'
+                                    : (u.last_platform || '—');
                 return `<tr>
                     <td><span class="user-status-dot" style="background:${active?'#4ADE80':'#7F8A87'}"></span>${active?'فعال':'غیرفعال'}</td>
                     <td dir="ltr">${escapeHtml(u.telegram_id||'—')}</td>
+                    <td dir="ltr">${escapeHtml(u.bale_id||'—')}</td>
                     <td dir="ltr">${escapeHtml(u.username||'—')}</td>
                     <td>${escapeHtml(u.name||'—')}</td>
                     <td dir="ltr">${escapeHtml(u.phone||'—')}</td>
+                    <td>${escapeHtml(platformLabel)}</td>
+                    <td dir="ltr">${escapeHtml(u.last_ip||'—')}</td>
                     <td>${escapeHtml(u.first_login||u.created_at||'—')}</td>
                     <td>${escapeHtml(u.last_login||'—')}</td>
                     <td>${Number(u.login_count||0)}</td>
                     <td><button type="button" class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="toggleUserHistory(${Number(u.id)}, this)">📜 تاریخچه</button></td>
                 </tr>
                 <tr id="userHistoryRow${Number(u.id)}" style="display:none;">
-                    <td colspan="9"><div id="userHistoryBox${Number(u.id)}" style="padding:10px;font-size:12px;"></div></td>
+                    <td colspan="12"><div id="userHistoryBox${Number(u.id)}" style="padding:10px;font-size:12px;"></div></td>
                 </tr>`;
             }).join('')
         }</tbody></table></div>`;
@@ -4841,8 +6151,9 @@ async function toggleUserHistory(userId, btn){
         const data = await r.json();
         const events = Array.isArray(data.events) ? data.events : [];
         if (!events.length) { box.innerHTML = 'رخدادی برای این کاربر ثبت نشده.'; return; }
-        box.innerHTML = '<table class="users-table" style="width:100%;"><thead><tr><th>تاریخ و ساعت ورود</th><th>IP</th></tr></thead><tbody>' +
-            events.map(e => `<tr><td>${escapeHtml(e.created_at||'—')}</td><td dir="ltr">${escapeHtml(e.ip_address||'—')}</td></tr>`).join('') +
+        const pf = v => v === 'telegram' ? 'تلگرام' : (v === 'bale' ? 'بله' : (v || '—'));
+        box.innerHTML = '<table class="users-table" style="width:100%;"><thead><tr><th>تاریخ و ساعت ورود</th><th>پلتفرم</th><th>IP</th><th>مرورگر / دستگاه</th></tr></thead><tbody>' +
+            events.map(e => `<tr><td>${escapeHtml(e.created_at||'—')}</td><td>${escapeHtml(pf(e.platform))}</td><td dir="ltr">${escapeHtml(e.ip_address||'—')}</td><td dir="ltr" style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(e.user_agent||'—')}</td></tr>`).join('') +
             '</tbody></table>';
     } catch (e) {
         box.innerHTML = 'خطا در بارگذاری تاریخچه.';
@@ -4989,8 +6300,53 @@ function switchTab(tabId) {
     }
 
 
+    /*
+     * آماده‌سازیِ اسکریپتِ مورد نیازِ این تب
+     *
+     * اگر فایلِ مربوطه هنوز بارگیری نشده باشد، ابتدا بارگیری می‌شود و
+     * سپس همین تابع دوباره فراخوانی می‌شود تا مقداردهیِ تب انجام شود.
+     * کلاس‌های تب همین بالا تنظیم شده‌اند، بنابراین کاربر بلافاصله
+     * تغییرِ تب را می‌بیند و فقط محتوا اندکی بعد می‌آید.
+     */
+    var __tabScripts = (window.MELKINO_TAB_SCRIPTS || {})[tabId] || [];
+    var __loaded     = window.MELKINO_LOADED_SCRIPTS || {};
+    var __missing    = [];
+
+    for (var __i = 0; __i < __tabScripts.length; __i++) {
+        if (!__loaded[__tabScripts[__i]]) {
+            __missing.push(__tabScripts[__i]);
+        }
+    }
+
+    if (__missing.length && typeof window.melkinoLoadAdminScripts === 'function') {
+        window.melkinoLoadAdminScripts(__missing, function () {
+            switchTab(tabId);
+        });
+        return;
+    }
+
     if (tabId === 'ads') {
         renderAds();
+    }
+
+    if (tabId === 'bots' && typeof loadBotSettings === 'function') {
+        loadBotSettings();
+    }
+
+    if (tabId === 'images' && typeof loadAdminImages === 'function') {
+        loadAdminImages();
+    }
+
+    if (tabId === 'promotions' && typeof loadPromotions === 'function') {
+        loadPromotions();
+    }
+
+    if (tabId === 'theme' && typeof initThemeManager === 'function') {
+        initThemeManager();
+    }
+
+    if (tabId === 'backup' && typeof loadBackups === 'function') {
+        loadBackups();
     }
 
 
@@ -5012,8 +6368,7 @@ function switchTab(tabId) {
 
     if (tabId === 'users') {
         loadAdminUsers();
-        loadRecentVisits();
-    }
+            }
 
     if (tabId === 'global') {
         loadGlobalSettings();
@@ -5182,16 +6537,18 @@ function setSupportTicketStatus(action) {
 
 
 function renderDashboard() {
-    const total=adsData.length;
-    const pending=adsData.filter(a=>a.status==='pending').length;
-    const published=adsData.filter(a=>a.status==='published').length;
-    const vip=adsData.filter(a=>a.is_vip===true||a.is_vip==='1').length;
+    const T=window.MELKINO_AD_TOTALS||null;
+    const total=T?T.total:adsData.length;
+    const pending=T?T.pending:adsData.filter(a=>a.status==='pending').length;
+    const published=T?T.published:adsData.filter(a=>a.status==='published').length;
+    const vip=T?T.vip:adsData.filter(a=>a.is_vip===true||a.is_vip==='1').length;
     const matchedRequests=requestsData.filter(r=>Array.isArray(r.matches)&&r.matches.length>0).length;
     const matchCount=requestsData.reduce((sum,r)=>sum+(Array.isArray(r.matches)?r.matches.length:0),0);
     const recentRequests=requestsData.slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))).slice(0,10).length;
     const pendingReview=pending+requestsData.filter(r=>!r.status||r.status==='new'||r.status==='pending').length;
     const set=(id,val)=>{const e=document.getElementById(id);if(e)e.innerText=val;};
-    set('dashTotalAds',total);set('dashPendingAds',pending);set('dashPublishedAds',published);set('dashTotalRequests',requestsData.length);
+    const RM=window.MELKINO_REQUESTS_META||null;
+    set('dashTotalAds',total);set('dashPendingAds',pending);set('dashPublishedAds',published);set('dashTotalRequests',RM?RM.total:requestsData.length);
     set('dashVipAds',vip);set('dashMatchedRequests',matchedRequests);set('dashMatchCount',matchCount);set('dashNewRequests',recentRequests);set('dashPendingReview',pendingReview);
     const usersEl=document.getElementById('dashUsers');
     const visitsEl=document.getElementById('dashVisits24h');
@@ -5203,7 +6560,7 @@ function renderDashboard() {
         if(usersEl)usersEl.innerText=Array.isArray(u?.users)?u.users.length:0;
         if(visitsEl)visitsEl.innerText=Number(v?.last_24h||0);
     });
-    set('dashPublishedVip',adsData.filter(a=>(a.is_vip===true||a.is_vip==='1')&&a.status==='published').length);
+    set('dashPublishedVip',T?T.published_vip:adsData.filter(a=>(a.is_vip===true||a.is_vip==='1')&&a.status==='published').length);
 
     fetch('support-api.php?action=admin_get_tickets',{cache:'no-store'})
         .then(r=>r.json())
@@ -5250,7 +6607,7 @@ function uploadOnboardingLogo() {
     formData.append('onboarding_logo', file);
 
     // مسیر آپلود - اگر پروژه در پوشه melkino است
-    const uploadUrl = window.location.origin + '/melkino/upload_onboarding_logo.php';
+    const uploadUrl = 'upload_onboarding_logo.php';
     // اگر پروژه در ریشه است، خط بالا رو کامنت کنید و این خط رو فعال کنید:
     // const uploadUrl = window.location.origin + '/upload_onboarding_logo.php';
 
@@ -5417,13 +6774,28 @@ document.addEventListener(
         }
 
 
-        renderDashboard();
-        renderAds();
-        renderRequests();
-        loadContactSettings();
-        bindContactLivePreview();
-        loadAdminUsers();
-        loadRecentVisits();
+        /*
+         * پیش‌تر در اینجا داده‌های «همه‌ی تب‌ها» با هم بارگیری می‌شد:
+         * داشبورد، آگهی‌ها، درخواست‌ها، تنظیماتِ تماس و کاربران.
+         * یعنی در هر بارگذاریِ پنل، چندین درخواستِ هم‌زمان به سرور فرستاده
+         * می‌شد — از جمله دریافتِ فهرستِ کاملِ آگهی‌ها که ممکن است حجیم
+         * باشد — در حالی که ادمین در آن لحظه فقط یک تب را می‌بیند.
+         *
+         * حالا فقط تبِ فعلی مقداردهی می‌شود و بقیه هنگامی که ادمین آن‌ها را
+         * باز کند آماده می‌شوند (switchTab خودش این کار را می‌کند).
+         * شنونده‌های فیلتر و جست‌وجو در بالا همچنان به عناصر متصل‌اند،
+         * بنابراین پس از باز شدنِ تب همه چیز درست کار می‌کند.
+         */
+        var __activeTab = document.querySelector('.tab-content.active');
+        var __activeId  = __activeTab
+            ? String(__activeTab.id || '').replace(/^tab-/, '')
+            : 'dashboard';
+
+        if (!__activeId) {
+            __activeId = 'dashboard';
+        }
+
+        switchTab(__activeId);
 
     }
 );
@@ -5460,8 +6832,81 @@ document
 
 </script>
 
-<script src="admin-ads.js"></script>
-<script src="admin-requests.js"></script>
+<!-- رله‌ی ارتباط با تلگرام/بله (فایل کوچک، همراهِ صفحه می‌آید) -->
+<script src="telegram-relay.js" defer></script>
+
+<!--
+    =========================================================
+    بارگیریِ هوشمندِ اسکریپت‌های سنگینِ پنل ادمین
+    =========================================================
+    چرا این کار لازم است؟
+        سه فایل admin-ads.js (۹۳ کیلوبایت)، admin-new-tabs.js (۴۵ کیلوبایت)
+        و admin-requests.js (۲۳ کیلوبایت) روی هم بیش از ۱۶۰ کیلوبایت
+        جاوااسکریپت هستند که پیش‌تر «همیشه و هم‌زمان» با صفحه بارگیری
+        می‌شدند؛ در حالی که بیشترِ آن‌ها فقط برای یک یا دو تب به کار
+        می‌روند و ادمین معمولاً ابتدا داشبورد را می‌بیند.
+
+        حالا این فایل‌ها فقط در دو حالت بارگیری می‌شوند:
+          ۱) هنگامی که تبِ مربوط به آن‌ها باز شود؛
+          ۲) در پس‌زمینه و پس از آماده شدنِ کاملِ صفحه، تا هنگامی که
+             ادمین روی تب‌ها کلیک کند، از پیش آماده باشند.
+
+        نتیجه: صفحه بسیار زودتر نمایش داده می‌شود و در عین حال هیچ
+        دکمه‌ای از کار نمی‌افتد.
+-->
+<script>
+(function () {
+    window.MELKINO_LOADED_SCRIPTS = window.MELKINO_LOADED_SCRIPTS || {};
+
+    // هر تب به کدام اسکریپت نیاز دارد
+    window.MELKINO_TAB_SCRIPTS = {
+        ads:         ['admin-ads.js'],
+        requests:    ['admin-requests.js'],
+        bots:        ['admin-new-tabs.js'],
+        images:      ['admin-new-tabs.js'],
+        promotions:  ['admin-new-tabs.js'],
+        theme:       ['admin-new-tabs.js'],
+        backup:      ['admin-new-tabs.js'],
+        diagnostics: ['admin-new-tabs.js']
+    };
+
+    var ALL = ['admin-ads.js', 'admin-new-tabs.js', 'admin-requests.js'];
+
+    function loadOne(src, cb) {
+        if (window.MELKINO_LOADED_SCRIPTS[src]) { cb(); return; }
+        var s = document.createElement('script');
+        s.src = src;
+        s.async = false;
+        s.onload  = function () { window.MELKINO_LOADED_SCRIPTS[src] = true; cb(); };
+        s.onerror = function () { window.MELKINO_LOADED_SCRIPTS[src] = true; cb(); };
+        document.head.appendChild(s);
+    }
+
+    window.melkinoLoadAdminScripts = function (list, cb) {
+        var i = 0;
+        (function next() {
+            if (i >= list.length) { cb(); return; }
+            loadOne(list[i++], function () { next(); });
+        })();
+    };
+
+    // پیش‌بارگیریِ پس‌زمینه؛ با تأخیرِ کوتاه تا بارِ اولیه سنگین نشود
+    function prefetch() {
+        var i = 0;
+        (function next() {
+            if (i >= ALL.length) return;
+            var src = ALL[i++];
+            loadOne(src, function () { setTimeout(next, 60); });
+        })();
+    }
+
+    if (document.readyState === 'complete') {
+        setTimeout(prefetch, 120);
+    } else {
+        window.addEventListener('load', function () { setTimeout(prefetch, 120); });
+    }
+})();
+</script>
 
 <script>
 (function(){
@@ -5478,7 +6923,8 @@ document
  async function load(){try{const d=await fetch('admin-property-revisions.php?action=list',{cache:'no-store'}).then(r=>r.json());const rows=d.revisions||[];cnt.textContent=rows.length;fab.style.display=rows.length?'block':'none';list.innerHTML=rows.length?rows.map(r=>{const s=r.snapshot||{},x=s.after||{},b=s.before||{};return `<div style="border:1px solid #e2e2e2;border-radius:14px;padding:13px;margin:10px 0"><b>${esc(r.ad_id)} — ${esc(r.title||'')}</b><div style="font-size:12px;color:#666;margin-top:6px">قبل: ${esc(b.title||'—')} | بعد: ${esc(x.title||'—')}</div><div style="font-size:12px;color:#666;margin-top:4px">متراژ: ${esc(b.area??'—')} ← ${esc(x.area??'—')} | قیمت: ${esc(b.price_sell??'—')} ← ${esc(x.price_sell??'—')}</div><div style="display:flex;gap:8px;margin-top:10px"><button type="button" data-rev="${r.id}" data-act="approve">✅ تأیید و انتشار</button><button type="button" data-rev="${r.id}" data-act="reject">❌ رد</button></div></div>`}).join(''):'<div style="text-align:center;color:#666;padding:30px">موردی برای بررسی نیست.</div>';}catch(e){list.innerHTML='<div style="color:#b00020">خطا در بارگذاری ویرایش‌ها.</div>';}}
  document.getElementById('openUserRevisions').onclick=()=>{modal.style.display='flex';load();};document.getElementById('closeUserRevisions').onclick=()=>modal.style.display='none';
  list.onclick=async e=>{const b=e.target.closest('[data-rev]');if(!b)return;if(!confirm(b.dataset.act==='approve'?'این ویرایش تأیید و دوباره منتشر شود؟':'این ویرایش رد شود؟'))return;const d=await fetch('admin-panel.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({user_revision_action:b.dataset.act,revision_id:b.dataset.rev})}).then(r=>r.json());alert(d.message||'');if(d.success)load();};
- load();setInterval(load,30000);
+ /* اجرایِ فوری حذف شد تا با بارگذاریِ اولیه رقابت نکند */
+ setTimeout(load, 4000);setInterval(load,60000);
 })();
 </script>
 </body>

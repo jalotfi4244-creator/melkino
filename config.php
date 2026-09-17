@@ -59,30 +59,75 @@ register_shutdown_function(function () {
 });
 
 require_once __DIR__ . '/db-settings.php';
+
+// =========================================================
+// بارگذاری مقادیر محرمانه از خارج از کدِ تحتِ کنترل نسخه
+// =========================================================
+// هرگز رمزها/توکن‌ها را داخل فایل‌هایی که در گیت commit می‌شوند نگذار.
+// اولویت خواندن:
+//   1) فایل config.secrets.php در همین پوشه (در .gitignore است)
+//   2) متغیرهای محیطی سرور (ENV)
+//   3) مقدار پیش‌فرضِ خالی/عمومی (بدون هیچ رمز واقعی)
+if (is_file(__DIR__ . '/config.secrets.php')) {
+    require_once __DIR__ . '/config.secrets.php';
+}
+
+if (!function_exists('melkinoEnv')) {
+    function melkinoEnv(string $key, string $default = ''): string
+    {
+        $value = getenv($key);
+        if ($value === false || $value === '') {
+            $value = $_ENV[$key] ?? $_SERVER[$key] ?? null;
+        }
+        return ($value === null || $value === '') ? $default : (string)$value;
+    }
+}
+
 // ========== تنظیمات ربات تلگرام ==========
-define('BOT_TOKEN', '8942418934:AAEi81P4LISH40EDMScg_V9hc2GbbMHlFJs');
-define('CHANNEL_ID', '@melkino_shahrood');
+if (!defined('BOT_TOKEN')) {
+    define('BOT_TOKEN', melkinoEnv('MELKINO_BOT_TOKEN', ''));
+}
+if (!defined('CHANNEL_ID')) {
+    define('CHANNEL_ID', melkinoEnv('MELKINO_CHANNEL_ID', '@melkino_shahrood'));
+}
 
 // ========== تنظیمات ربات بله ==========
-// از @botfather_bale (یا پنل توسعه‌دهندگان بله) توکن بگیر و اینجا جایگزین کن.
-define('BALE_BOT_TOKEN', '387417012:-ZJCL66dm8xQHrRe-Hmcc4vtdB_tLfaUhmE');
+// از @botfather_bale (یا پنل توسعه‌دهندگان بله) توکن بگیر و در
+// config.secrets.php یا متغیر محیطی MELKINO_BALE_BOT_TOKEN قرار بده.
+if (!defined('BALE_BOT_TOKEN')) {
+    define('BALE_BOT_TOKEN', melkinoEnv('MELKINO_BALE_BOT_TOKEN', ''));
+}
 
 // ========== تنظیمات پیامک (اختیاری) ==========
 // اگر سرویس پیامکی داری، این مقادیر رو با اطلاعات API واقعی جایگزین کن.
 // اگر خالی بمونه، سیستم به‌جای ارسال پیامک، کد رو مستقیم روی صفحه نشون می‌ده.
-define('SMS_API_KEY', '');
-define('SMS_API_URL', '');
-define('SMS_SENDER_LINE', '');
+if (!defined('SMS_API_KEY')) {
+    define('SMS_API_KEY', melkinoEnv('MELKINO_SMS_API_KEY', ''));
+}
+if (!defined('SMS_API_URL')) {
+    define('SMS_API_URL', melkinoEnv('MELKINO_SMS_API_URL', ''));
+}
+if (!defined('SMS_SENDER_LINE')) {
+    define('SMS_SENDER_LINE', melkinoEnv('MELKINO_SMS_SENDER_LINE', ''));
+}
 
 // ========== تنظیمات دیتابیس ==========
 define('MOCK_MODE', false);
 
-// ========== ثابت‌های دیتابیس (اینفینیتی‌فری) ==========
+// ========== ثابت‌های دیتابیس ==========
+// نکته: هر ثابت جداگانه بررسی می‌شود تا اگر فقط یکی از آن‌ها در
+// config.secrets.php تعریف شده بود، بقیه بی‌تعریف نمانند.
 if (!defined('DB_HOST')) {
-    define('DB_HOST', 'sql303.infinityfree.com');
-    define('DB_NAME', 'if0_42615627_melkino');
-    define('DB_USER', 'if0_42615627');
-    define('DB_PASS', 'Javad4244');
+    define('DB_HOST', melkinoEnv('DB_HOST', 'sql303.infinityfree.com'));
+}
+if (!defined('DB_NAME')) {
+    define('DB_NAME', melkinoEnv('DB_NAME', 'if0_42615627_melkino'));
+}
+if (!defined('DB_USER')) {
+    define('DB_USER', melkinoEnv('DB_USER', 'if0_42615627'));
+}
+if (!defined('DB_PASS')) {
+    define('DB_PASS', melkinoEnv('DB_PASS', ''));
 }
 
 // ========== مسیر تنظیمات ==========
@@ -228,6 +273,8 @@ if (!function_exists('getFirstImage')) {
 }
 
 // ========== اتصال به دیتابیس (حالت واقعی) ==========
+require_once __DIR__ . '/bot-settings.php';
+
 $pdo = null;
 
 if (!MOCK_MODE) {
@@ -310,15 +357,44 @@ if ($pdo instanceof PDO && php_sapi_name() !== 'cli') {
         session_start();
     }
 
+    try {
+        $melkinoMaintenanceOn = dbSettingGet($pdo, 'global', 'maintenance_mode', false);
+        $melkinoMaintenanceSince = (int) dbSettingGet($pdo, 'global', 'maintenance_started_at', 0);
+    } catch (Throwable $e) {
+        $melkinoMaintenanceOn = false;
+        $melkinoMaintenanceSince = 0;
+    }
+
+    // =========================================================
+    // وقتی حالت تعمیرات فعال می‌شود، همه‌ی نشست‌های قبلی باطل می‌شوند
+    // (هم کاربران عادی و هم ادمین‌ها باید دوباره وارد شوند)
+    // =========================================================
+    if ($melkinoMaintenanceOn && $melkinoMaintenanceSince > 0) {
+        $melkinoSessionStarted = (int)($_SESSION['melkino_session_started_at'] ?? 0);
+        if ($melkinoSessionStarted <= 0 || $melkinoSessionStarted < $melkinoMaintenanceSince) {
+            unset(
+                $_SESSION['is_admin'],
+                $_SESSION['user_role'],
+                $_SESSION['admin_id'],
+                $_SESSION['admin_username'],
+                $_SESSION['admin_display_name'],
+                $_SESSION['admin_login_at'],
+                $_SESSION['reg_telegram_id'],
+                $_SESSION['reg_bale_id'],
+                $_SESSION['user_phone'],
+                $_SESSION['user_name']
+            );
+            // توکن دسترسی ذخیره‌شده در مرورگر هم باطل می‌شود
+            if (isset($_COOKIE['melkino_access_token'])) {
+                setcookie('melkino_access_token', '', time() - 3600, '/');
+                unset($_COOKIE['melkino_access_token']);
+            }
+        }
+    }
+
     $melkinoIsAdminSession = !empty($_SESSION['is_admin'] ?? null);
 
     if (!in_array($melkinoCurrentScript, $melkinoMaintenanceAllowlist, true) && !$melkinoIsAdminSession) {
-        try {
-            $melkinoMaintenanceOn = dbSettingGet($pdo, 'global', 'maintenance_mode', false);
-        } catch (Throwable $e) {
-            $melkinoMaintenanceOn = false;
-        }
-
         if ($melkinoMaintenanceOn) {
             http_response_code(503);
             header('Retry-After: 3600');
@@ -330,9 +406,196 @@ if ($pdo instanceof PDO && php_sapi_name() !== 'cli') {
                 . '.box{max-width:420px}h1{font-size:22px;margin-bottom:10px}p{color:#A8B1AE;line-height:1.9}</style></head>'
                 . '<body><div class="box"><div style="font-size:48px;margin-bottom:12px;">🛠️</div>'
                 . '<h1>ملکینو موقتاً در دسترس نیست</h1>'
-                . '<p>سایت در حال انجام یک به‌روزرسانی است. لطفاً کمی بعد دوباره سر بزنید.</p></div></body></html>';
+                . '<p>سایت در حال تعمیر است. لطفاً بعداً مراجعه نمایید.</p></div></body></html>';
             exit;
         }
     }
 }
+
+/* =========================================================
+   نمایش خطاهای پنهان برای ادمین (فقط با ?debug=1)
+   =========================================================
+   چون نمایش خطاها در سایت خاموش است، هر خطای مرگبارِ PHP به‌جای
+   پیام، یک «صفحه‌ی سفید» نشان می‌دهد. با افزودنِ ?debug=1 به آدرس
+   (و فقط در صورتی که با حساب ادمین وارد شده باشی) خطاها نمایش
+   داده می‌شوند تا علتِ صفحه‌ی سفید مشخص شود.
+   ========================================================= */
+if (php_sapi_name() !== 'cli'
+    && (($_GET['debug'] ?? '') === '1')
+    && !empty($_SESSION['is_admin'])) {
+    @ini_set('display_errors', '1');
+    @ini_set('display_startup_errors', '1');
+    @ini_set('error_reporting', (string)E_ALL);
+    @ini_set('log_errors', '1');
+    register_shutdown_function(function () {
+        $e = error_get_last();
+        if ($e && in_array((int)$e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+            echo '<div dir="rtl" style="direction:rtl;text-align:right;font-family:Tahoma;background:#2A0F0F;'
+                . 'color:#FFD7D7;border:1px solid #7F1D1D;border-radius:10px;padding:14px;margin:14px;line-height:1.9">'
+                . '<b>خطای مرگبار (علت صفحه‌ی سفید):</b><br>'
+                . htmlspecialchars((string)$e['message']) . '<br><br>'
+                . '<b>فایل:</b> ' . htmlspecialchars((string)$e['file'])
+                . ' &nbsp; <b>خط:</b> ' . (int)$e['line']
+                . '</div>';
+        }
+    });
+}
+
+/* =========================================================
+   توکن ورودِ پشتیبان (برای مرورگرهای داخلی تلگرام/بله)
+   =========================================================
+   در بعضی دستگاه‌ها (مخصوصاً آیفون) مرورگرِ داخلی تلگرام کوکیِ
+   نشست را نگه نمی‌دارد؛ در نتیجه کاربر با وجود ورودِ موفق،
+   در هر بار باز کردنِ مینی‌اپ دوباره به صفحه‌ی ورود برمی‌گردد.
+   برای حل این مشکل، هنگام ورودِ موفق یک توکنِ یک‌بارمصرفِ
+   طولانی‌مدت صادر می‌شود که می‌تواند نشست را دوباره برقرار کند.
+   ========================================================= */
+
+if (!function_exists('melkinoEnsureLoginTokenTable')) {
+    function melkinoEnsureLoginTokenTable(): bool
+    {
+        global $pdo;
+        if (!($pdo instanceof PDO)) {
+            return false;
+        }
+        try {
+            $pdo->exec(
+                "CREATE TABLE IF NOT EXISTS login_tokens (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    token CHAR(64) NOT NULL,
+                    user_id BIGINT UNSIGNED NULL,
+                    telegram_id VARCHAR(191) NULL,
+                    bale_id VARCHAR(191) NULL,
+                    user_agent VARCHAR(255) NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    first_used_at DATETIME NULL,
+                    expires_at DATETIME NOT NULL,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uq_login_tokens_token (token),
+                    KEY idx_login_tokens_user (user_id),
+                    KEY idx_login_tokens_expires (expires_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+            return true;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('melkinoMintLoginToken')) {
+    /** یک توکن ورودِ جدید می‌سازد و خودِ توکن را برمی‌گرداند (در خطا: رشته‌ی خالی) */
+    function melkinoMintLoginToken($userId, ?string $telegramId = null, ?string $baleId = null, int $days = 60): string
+    {
+        global $pdo;
+        if (!melkinoEnsureLoginTokenTable()) {
+            return '';
+        }
+        try {
+            $token = function_exists('random_bytes') ? bin2hex(random_bytes(32)) : md5(uniqid('', true) . microtime(true) . mt_rand());
+
+            $st = $pdo->prepare(
+                "INSERT INTO login_tokens (token, user_id, telegram_id, bale_id, user_agent, expires_at)
+                 VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY))"
+            );
+            $st->execute([
+                $token,
+                $userId ? (int)$userId : null,
+                $telegramId !== null && $telegramId !== '' ? (string)$telegramId : null,
+                $baleId !== null && $baleId !== '' ? (string)$baleId : null,
+                substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
+                max(1, min(365, $days)),
+            ]);
+
+            // پاک‌سازی توکن‌های منقضی‌شده
+            $pdo->exec("DELETE FROM login_tokens WHERE expires_at < NOW()");
+            return $token;
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+}
+
+if (!function_exists('melkinoConsumeLoginToken')) {
+    /**
+     * با استفاده از توکن، نشست کاربر را برقرار می‌کند.
+     * خروجی: ['user_id','telegram_id','bale_id'] یا آرایه‌ی خالی در صورت نامعتبر بودن
+     */
+    function melkinoConsumeLoginToken(string $token): array
+    {
+        global $pdo;
+        $token = trim((string)$token);
+        if ($token === '' || preg_match('/^[a-f0-9]{64}$/', $token) !== 1) {
+            return [];
+        }
+        if (!melkinoEnsureLoginTokenTable()) {
+            return [];
+        }
+        try {
+            $st = $pdo->prepare(
+                "SELECT id, user_id, telegram_id, bale_id FROM login_tokens
+                  WHERE token = ? AND expires_at > NOW() LIMIT 1"
+            );
+            $st->execute([$token]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return [];
+            }
+            if (empty($row['first_used_at'])) {
+                $upd = $pdo->prepare("UPDATE login_tokens SET first_used_at = NOW() WHERE id = ?");
+                $upd->execute([$row['id']]);
+            }
+            return [
+                'user_id'     => $row['user_id'] !== null ? (int)$row['user_id'] : null,
+                'telegram_id' => $row['telegram_id'] !== null ? (string)$row['telegram_id'] : '',
+                'bale_id'     => $row['bale_id'] !== null ? (string)$row['bale_id'] : '',
+            ];
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
+/* =========================================================
+   برقراری خودکارِ نشست از روی توکنِ ورود (?t=...)
+   =========================================================
+   اگر کاربر از قبل وارد شده باشد کاری انجام نمی‌شود. این بخش
+   فقط زمانی فعال است که پارامتر t در آدرس وجود داشته باشد.
+   ========================================================= */
+if ($pdo instanceof PDO && php_sapi_name() !== 'cli') {
+    $melkinoLoginToken = trim((string)($_GET['t'] ?? ''));
+
+    if ($melkinoLoginToken !== '') {
+        if (session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
+            @session_start();
+        }
+
+        if (session_status() === PHP_SESSION_ACTIVE
+            && empty($_SESSION['reg_telegram_id'])
+            && empty($_SESSION['reg_bale_id'])) {
+
+            $melkinoTokenData = melkinoConsumeLoginToken($melkinoLoginToken);
+
+            if (!empty($melkinoTokenData['telegram_id'])) {
+                $_SESSION['reg_telegram_id'] = (string)$melkinoTokenData['telegram_id'];
+            }
+            if (!empty($melkinoTokenData['bale_id'])) {
+                $_SESSION['reg_bale_id'] = (string)$melkinoTokenData['bale_id'];
+            }
+            if (!empty($melkinoTokenData['user_id']) && ($pdo instanceof PDO)) {
+                try {
+                    $st = $pdo->prepare("SELECT phone FROM users WHERE id = ? LIMIT 1");
+                    $st->execute([(int)$melkinoTokenData['user_id']]);
+                    $phone = trim((string)$st->fetchColumn());
+                    if ($phone !== '') {
+                        $_SESSION['user_phone'] = $phone;
+                    }
+                } catch (Throwable $e) {
+                    // نادیده گرفته می‌شود
+                }
+            }
+        }
+    }
+}
+
 ?>

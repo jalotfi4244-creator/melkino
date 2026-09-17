@@ -173,7 +173,7 @@ $csrfToken =
 ========================================================= */
 
 if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' &&
     !$isAdminRequest &&
     !in_array(
         $action,

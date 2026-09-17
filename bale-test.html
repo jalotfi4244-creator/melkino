@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>تستِ مینی‌اپِ بله</title>
+
+<!-- اسکریپتِ بله باید پیش از هر اسکریپتِ دیگر در ابتدای head باشد (مستندات) -->
+<script src="https://tapi.bale.ai/miniapp.js?3"></script>
+
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:Tahoma,Arial,sans-serif;
+    background:#0b3d2e;
+    color:#fff;
+    padding:16px;
+    line-height:1.9;
+    direction:rtl;
+  }
+  .ok{
+    background:#0f9d58;
+    border-radius:14px;
+    padding:22px;
+    text-align:center;
+    font-size:20px;
+    font-weight:bold;
+    margin-bottom:18px;
+  }
+  .card{
+    background:rgba(255,255,255,.10);
+    border-radius:12px;
+    padding:14px 16px;
+    margin-bottom:12px;
+    font-size:14px;
+  }
+  .card h3{font-size:15px;margin-bottom:8px;color:#8ef0c0}
+  .row{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(255,255,255,.12);padding:5px 0}
+  .row:last-child{border-bottom:none}
+  .k{opacity:.75;flex-shrink:0}
+  .v{font-weight:bold;text-align:left;direction:ltr;word-break:break-all}
+  .good{color:#7dffb0}
+  .bad{color:#ff8a80}
+  #log{font-size:12px;direction:ltr;text-align:left;background:#000;padding:10px;border-radius:8px;max-height:220px;overflow:auto}
+  #log div{padding:2px 0;border-bottom:1px solid #222}
+</style>
+</head>
+<body>
+
+<div class="ok">✅ اگر این متن را می‌بینید، مینی‌اپ درست باز شده است</div>
+
+<div class="card">
+  <h3>وضعیتِ اتصال به بله</h3>
+  <div class="row"><span class="k">شیءِ Bale.WebApp</span><span class="v" id="sdk">—</span></div>
+  <div class="row"><span class="k">فراخوانیِ ready()</span><span class="v" id="ready">—</span></div>
+  <div class="row"><span class="k">درونِ قاب (iframe)</span><span class="v" id="iframe">—</span></div>
+  <div class="row"><span class="k">نسخهٔ API</span><span class="v" id="version">—</span></div>
+  <div class="row"><span class="k">تم</span><span class="v" id="theme">—</span></div>
+  <div class="row"><span class="k">مینی‌اپ پشتیبانی می‌شود</span><span class="v" id="supported">—</span></div>
+</div>
+
+<div class="card">
+  <h3>اطلاعاتِ کاربر</h3>
+  <div class="row"><span class="k">نام</span><span class="v" id="uname">—</span></div>
+  <div class="row"><span class="k">شناسه</span><span class="v" id="uid">—</span></div>
+  <div class="row"><span class="k">initData</span><span class="v" id="idata">—</span></div>
+</div>
+
+<div class="card">
+  <h3>گزارشِ اجرا</h3>
+  <div id="log"></div>
+</div>
+
+<script>
+(function () {
+  var logEl = document.getElementById('log');
+  function log(msg) {
+    var d = document.createElement('div');
+    d.textContent = msg;
+    logEl.appendChild(d);
+  }
+  function set(id, val, good) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    el.className = 'v ' + (good === true ? 'good' : good === false ? 'bad' : '');
+  }
+
+  log('صفحه شروع به اجرا کرد');
+
+  var tries = 0;
+  var maxTries = 100;          // ۱۰۰ × ۱۰۰ میلی‌ثانیه = ۱۰ ثانیه
+  var done = false;
+
+  function finish() {
+    if (done) return;
+    done = true;
+
+    var has = !!(window.Bale && window.Bale.WebApp);
+    set('sdk', has ? 'موجود ✅' : 'در دسترس نیست ❌', has);
+
+    if (!has) {
+      set('ready', 'انجام نشد ❌', false);
+      log('پایان: شیءِ Bale.WebApp پیدا نشد.');
+      log('این یعنی اسکریپتِ بله بارگیری نشده یا صفحه خارج از بله باز شده است.');
+      return;
+    }
+
+    var W = window.Bale.WebApp;
+    try {
+      W.ready();
+      set('ready', 'فراخوانی شد ✅', true);
+      log('ready() با موفقیت فراخوانی شد');
+    } catch (e) {
+      set('ready', 'خطا: ' + e.message, false);
+      log('خطا در ready(): ' + e.message);
+    }
+
+    set('iframe', String(W.isIframe), true);
+    set('version', String(W.version || '—'), true);
+    set('theme', String(W.colorScheme || '—'), true);
+    set('supported', W.isMiniAppSupported ? 'بله ✅' : 'خیر ❌', W.isMiniAppSupported);
+
+    log('isIframe = ' + W.isIframe + '  (false یعنی اندروید — طبقِ مستندات طبیعی است)');
+
+    var u = (W.initDataUnsafe && W.initDataUnsafe.user) || null;
+    if (u) {
+      set('uname', (u.first_name || '') + (u.username ? ' (@' + u.username + ')' : ''), true);
+      set('uid', String(u.id), true);
+      log('کاربر شناسایی شد: ' + (u.first_name || '') + ' / ' + u.id);
+    } else {
+      set('uname', 'نامشخص', false);
+      set('uid', '—', false);
+      log('هیچ کاربری در initDataUnsafe نبود (خارج از بله یا هنوز آماده نیست)');
+    }
+
+    set('idata', W.initData ? ('دارد — ' + W.initData.length + ' کاراکتر') : 'ندارد ❌', !!W.initData);
+  }
+
+  var timer = setInterval(function () {
+    tries++;
+    if (window.Bale && window.Bale.WebApp) {
+      clearInterval(timer);
+      log('Bale.WebApp بعد از حدود ' + (tries * 100) + ' میلی‌ثانیه پیدا شد');
+      finish();
+    } else if (tries >= maxTries) {
+      clearInterval(timer);
+      log('پس از ' + (maxTries * 100 / 1000) + ' ثانیه، Bale.WebApp پیدا نشد');
+      finish();
+    }
+  }, 100);
+
+  document.addEventListener('DOMContentLoaded', function () {
+    log('DOMContentLoaded — صفحه کامل بارگیری شد');
+  });
+  window.addEventListener('load', function () {
+    log('load — همهٔ منابع بارگیری شدند');
+  });
+  window.addEventListener('error', function (e) {
+    log('خطا: ' + e.message);
+  });
+})();
+</script>
+
+</body>
+</html>

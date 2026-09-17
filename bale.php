@@ -9,7 +9,7 @@
 |--------------------------------------------------------------------------
 */
 
-require_once __DIR__ . '/../db_helpers.php';
+require_once __DIR__ . '/db_helpers.php';
 require_once __DIR__ . '/telegram.php'; // برای استفاده از melkinoHttpPost مشترک
 
 /**

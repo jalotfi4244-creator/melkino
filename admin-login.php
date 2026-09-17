@@ -2,7 +2,15 @@
 session_start();
 require_once __DIR__ . '/config.php';
 
-const LEGACY_ADMIN_PASSWORD = 'melkinoAdmin';
+// رمز پشتیبان فقط از فایل محرمانه (یا متغیر محیطی) خوانده می‌شود؛
+// دیگر هیچ رمزی داخل کدِ commit شده وجود ندارد.
+if (!defined('LEGACY_ADMIN_PASSWORD')) {
+    $melkinoLegacyAdminPassword = getenv('MELKINO_LEGACY_ADMIN_PASSWORD');
+    if ($melkinoLegacyAdminPassword === false || $melkinoLegacyAdminPassword === '') {
+        $melkinoLegacyAdminPassword = $_ENV['MELKINO_LEGACY_ADMIN_PASSWORD'] ?? '';
+    }
+    define('LEGACY_ADMIN_PASSWORD', (string)$melkinoLegacyAdminPassword);
+}
 
 $security = [];
 foreach (['lockout', 'admin_login_log'] as $k) {
@@ -21,7 +29,7 @@ if ($security['lockout'] && (int) ($state['locked_until'] ?? 0) > time()) {
     $remaining = max(1, ceil(((int) $state['locked_until'] - time()) / 60));
     $error = true;
     $errorMessage = 'به‌دلیل چند ورود ناموفق، ورود موقتاً قفل شده است. حدود ' . $remaining . ' دقیقه دیگر دوباره تلاش کنید.';
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+} elseif (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $inputPass = (string) ($_POST['password'] ?? '');
 
     $st = $pdo->prepare('SELECT id, username, password_hash, is_active, display_name FROM admins WHERE username = :username LIMIT 1');
@@ -30,17 +38,24 @@ if ($security['lockout'] && (int) ($state['locked_until'] ?? 0) > time()) {
 
     $valid = $admin && !empty($admin['is_active']) && password_verify($inputPass, (string) $admin['password_hash']);
 
-    if (!$valid && !$admin) {
+    // مسیر پشتیبان فقط وقتی فعال است که رمزی در config.secrets.php تنظیم
+    // شده باشد؛ در غیر این صورت با رمز خالی هرگز match نمی‌شود (جلوگیری از
+    // ورود با پسورد خالی).
+    if (!$valid && !$admin && LEGACY_ADMIN_PASSWORD !== '') {
         $valid = hash_equals(LEGACY_ADMIN_PASSWORD, $inputPass);
     }
 
     if ($valid) {
+        // جلوگیری از Session Fixation: بعد از ورود موفق، شناسه نشست نو می‌شود
+        session_regenerate_id(true);
+
         $_SESSION['is_admin'] = true;
         $_SESSION['user_role'] = 'admin';
         $_SESSION['admin_id'] = (int) ($admin['id'] ?? 0);
         $_SESSION['admin_username'] = (string) ($admin['username'] ?? 'admin');
         $_SESSION['admin_display_name'] = (string) ($admin['display_name'] ?? '');
         $_SESSION['admin_login_at'] = time();
+        $_SESSION['melkino_session_started_at'] = time();
         $_SESSION['admin_last_activity'] = time();
 
         dbSettingSet($pdo, 'security', 'admin_attempt_state', ['count' => 0, 'locked_until' => 0], 'json', $_SESSION['admin_id'] ?: null);
@@ -95,8 +110,9 @@ if ($security['lockout'] && (int) ($state['locked_until'] ?? 0) > time()) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>ملکینو - ورود ادمین</title>
-    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" media="print" onload="this.media='all'" />
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="design-pro.css">
     <style>
         .main-content { flex: 1; display: flex; justify-content: center; align-items: center; background: var(--bg); padding: var(--space-3); }
         .login-box { background: var(--surface); border-radius: var(--radius-lg); padding: var(--space-4); box-shadow: var(--shadow-card); border: 1px solid var(--border); width: 100%; max-width: 380px; }
@@ -123,7 +139,7 @@ if ($security['lockout'] && (int) ($state['locked_until'] ?? 0) > time()) {
                 <div class="login-sub">برای دسترسی به تنظیمات، رمز عبور ادمین را وارد کنید.</div>
                 
                 <?php if ($error): ?>
-                <div class="login-error">رمز عبور اشتباه است! لطفاً دوباره تلاش کنید.</div>
+                <div class="login-error"><?= htmlspecialchars($errorMessage !== '' ? $errorMessage : 'رمز عبور اشتباه است! لطفاً دوباره تلاش کنید.', ENT_QUOTES, 'UTF-8') ?></div>
                 <?php endif; ?>
 
                 <form method="POST">

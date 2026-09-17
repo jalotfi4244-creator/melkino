@@ -12,12 +12,25 @@
 
 session_start();
 header('Content-Type: application/json; charset=utf-8');
-require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../helpers/telegram.php';
-require_once __DIR__ . '/../helpers/bale.php';
-require_once __DIR__ . '/../helpers/sms.php';
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+// =========================================================
+// ورود با شماره موبایل / کد یک‌بارمصرف غیرفعال شده است.
+// تنها مسیر ورود، مینی‌اپ تلگرام یا بله است.
+// (برای فعال‌سازی دوباره، این بلوک را حذف کن)
+// =========================================================
+http_response_code(403);
+echo json_encode([
+    'success' => false,
+    'message' => 'ورود فقط از طریق تلگرام و پیام‌رسان بله امکان‌پذیر است.',
+], JSON_UNESCAPED_UNICODE);
+exit;
+
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/telegram.php';
+require_once __DIR__ . '/bale.php';
+require_once __DIR__ . '/sms.php';
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => 'روش مجاز نیست'], JSON_UNESCAPED_UNICODE);
     exit;

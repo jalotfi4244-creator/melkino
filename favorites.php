@@ -29,7 +29,9 @@ function getSiteLogoUrl(): string
    ===================================================== */
 if (isset($_GET['action'])) {
     $action = trim((string)$_GET['action']);
-    $identity = melkinoCurrentIdentity($_GET['telegram_id'] ?? null);
+    // هویت فقط از سشن سروری خوانده می‌شود؛ پارامتر URL نادیده گرفته
+    // می‌شود تا امکان دیدن علاقه‌مندی‌های دیگران وجود نداشته باشد.
+    $identity = melkinoCurrentIdentity();
     $userId = $identity['user_id'];
     $telegramId = $identity['telegram_id'];
 

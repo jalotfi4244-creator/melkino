@@ -647,6 +647,15 @@ ${primaryAction}
 
 
 <button
+    class="table-action"
+    title="بله"
+    onclick="publishToBale('${ad.id}')"
+>
+    💬
+</button>
+
+
+<button
     class="table-action danger"
     title="حذف"
     onclick="deleteAd('${ad.id}')"
@@ -1280,7 +1289,18 @@ async function toggleAdVip(id){
     else{ad.is_vip=!ad.is_vip;}
 }
 
-async function publishToTelegram(id) {
+/**
+ * انتشار آگهی در تلگرام/بله
+ *
+ * ترتیب تلاش:
+ *   ۱. ارسال مستقیم از «مرورگرِ ادمین» به تلگرام/بله
+ *      (این مسیر مشکلِ هاست‌هایی مثل InfinityFree را حل می‌کند که
+ *       دسترسیِ خروجیِ سرور به api.telegram.org را مسدود کرده‌اند)
+ *   ۲. در صورت شکست، ارسال از «سرور» (هاست‌های معمولی)
+ */
+async function melkinoPublishAd(id, platform) {
+
+    const label = platform === 'bale' ? 'بله' : 'تلگرام';
 
     const ad =
         adsData.find(
@@ -1298,13 +1318,138 @@ async function publishToTelegram(id) {
         return;
     }
 
-    if (!confirm(`آگهی «${ad.title}» به گروه/کانال تلگرام ارسال شود؟`)) {
+    if (!confirm(`آگهی «${ad.title}» به کانال ${label} ارسال شود؟`)) {
         return;
     }
 
+    let prepared = null;
+    let browserReason = '';
+
     try {
 
-        const response = await fetch('publish-to-telegram.php', {
+        prepared = await fetch('telegram-relay.php?action=prepare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ad_id: ad.id, platform: platform })
+        }).then(function (r) { return r.json(); });
+
+    } catch (e) {
+        prepared = null;
+        browserReason = 'ارتباط با telegram-relay.php برقرار نشد.';
+    }
+
+    if (!(prepared && prepared.success)) {
+
+        if (!browserReason) {
+            browserReason =
+                prepared && prepared.message
+                    ? prepared.message
+                    : 'آماده‌سازیِ پیام روی سرور ناموفق بود.';
+        }
+
+    } else if (typeof window.melkinoApiCall !== 'function') {
+
+        browserReason =
+            'اسکریپتِ ارتباط با پیام‌رسان (telegram-relay.js) در صفحه لود نشده است.';
+
+    } else {
+
+        if (!prepared.chat_id) {
+            alert(`❌ شناسه کانال ${label} تنظیم نشده است. از تب «ربات و کانال» آن را وارد کن.`);
+            return;
+        }
+
+        const usePhoto = !!(prepared.has_photo && prepared.photo_url);
+
+        function buildParams(withPhoto) {
+            const p = withPhoto
+                ? {
+                    chat_id: prepared.chat_id,
+                    photo: prepared.photo_url,
+                    caption: prepared.text
+                }
+                : {
+                    chat_id: prepared.chat_id,
+                    text: prepared.text
+                };
+
+            if (platform !== 'bale') {
+                p.parse_mode = 'HTML';
+            }
+
+            return p;
+        }
+
+        let result = null;
+        let usedFallback = false;
+
+        if (usePhoto) {
+            result = await window.melkinoApiCall(platform, 'sendPhoto', buildParams(true));
+
+            // اگر تلگرام/بله نتوانست تصویر را از سایت دریافت کند
+            // (مثلاً هات‌لینک بسته باشد)، بدون عکس دوباره امتحان می‌کنیم
+            if (!(result && result.ok)) {
+                const textResult = await window.melkinoApiCall(platform, 'sendMessage', buildParams(false));
+                if (textResult && textResult.ok) {
+                    result = textResult;
+                    usedFallback = true;
+                }
+            }
+        } else {
+            result = await window.melkinoApiCall(platform, 'sendMessage', buildParams(false));
+        }
+
+        if (result && result.ok) {
+
+            const messageId =
+                result.result && result.result.message_id
+                    ? result.result.message_id
+                    : '';
+
+            if (messageId && typeof window.melkinoRecordPublish === 'function') {
+                await window.melkinoRecordPublish(platform, ad.id, String(messageId));
+            }
+
+            const via =
+                result.via === 'browser'
+                    ? 'ارسال از مرورگر شما'
+                    : 'ارسال از سرور';
+
+            let msg = `📢 آگهی «${ad.title}» با موفقیت در ${label} منتشر شد (${via}).`;
+
+            if (usedFallback) {
+                msg += '\n⚠️ پیام بدون عکس ارسال شد، چون ' + label + ' نتوانست تصویر را از سایت دریافت کند.';
+            }
+
+            alert(msg);
+
+            return;
+        }
+
+        browserReason =
+            result && result.description
+                ? result.description
+                : 'علت نامشخص';
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | مسیرِ پشتیبانِ سرور
+    |--------------------------------------------------------------------------
+    | اگر ارسال از مرورگر ممکن نبود (اسکریپت لود نشده، دسترسیِ شبکه‌ایِ
+    | مرورگر مسدود، یا خطا در آماده‌سازی)، انتشار را از سمتِ سرور امتحان
+    | می‌کنیم.
+    |
+    | قبلاً برای «بله» این مسیر وجود نداشت و فقط یک پیامِ کلیِ
+    | «ناموفق بود» نشان داده می‌شد، بدون اینکه علتش گفته شود — برای همین
+    | تشخیصِ مشکل عملاً غیرممکن بود. حالا علتِ هر دو مسیر گزارش می‌شود.
+    |--------------------------------------------------------------------------
+    */
+    const endpoint = platform === 'bale' ? 'publish-to-bale.php' : 'publish-to-telegram.php';
+
+    try {
+
+        const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: ad.id })
@@ -1312,16 +1457,43 @@ async function publishToTelegram(id) {
 
         const result = await response.json();
 
-        if (!result.success) {
-            alert('❌ ' + (result.message || 'انتشار در تلگرام ناموفق بود.'));
+        if (result && result.success) {
+            alert(`📢 آگهی «${ad.title}» از طریقِ سرور در ${label} منتشر شد.`);
             return;
         }
 
-        alert(`📢 آگهی "${ad.title}" با موفقیت در تلگرام منتشر شد.`);
+        const serverReason =
+            result && result.message
+                ? result.message
+                : 'پاسخ نامعتبر از سرور';
+
+        alert(
+            `❌ انتشار در ${label} ناموفق بود.\n` +
+            `• علتِ مسیرِ مرورگر: ${browserReason}\n` +
+            `• علتِ مسیرِ سرور: ${serverReason}`
+        );
 
     } catch (e) {
-        alert('❌ خطا در ارتباط با سرور.');
+
+        alert(
+            `❌ انتشار در ${label} ناموفق بود.\n` +
+            `• علتِ مسیرِ مرورگر: ${browserReason}\n` +
+            `• مسیرِ سرور هم در دسترس نبود.`
+        );
     }
+}
+
+async function publishToTelegram(id) {
+    return melkinoPublishAd(id, 'telegram');
+}
+
+
+// ==============================================
+// انتشار در کانال بله
+// ==============================================
+
+async function publishToBale(id) {
+    return melkinoPublishAd(id, 'bale');
 }
 
 
@@ -2839,6 +3011,20 @@ ${renderKVGrid(
     )}')"
 >
     📢 انتشار در تلگرام
+</button>
+
+
+<button
+    class="btn-primary-full"
+    style="width:auto;padding:0 22px;background:linear-gradient(135deg,#2C4A7C,#1E3557)!important;"
+    onclick="publishToBale('${String(
+        ad.id
+    ).replace(
+        /'/g,
+        "\\'"
+    )}')"
+>
+    💬 انتشار در بله
 </button>
 
 </div>
