@@ -1427,7 +1427,7 @@ require_once __DIR__ . '/header.php';
             <a href="my-request-matches.php" class="profile-stat">
                 <div class="profile-stat-top">
                     <div class="profile-stat-icon">🔎</div>
-                    <div class="profile-stat-number match-stat-number"><?= (int)$matchCount ?></div>
+                    <div class="profile-stat-number match-stat-number" id="profileMatchCount"><?= (int)$matchCount ?></div>
                 </div>
                 <div class="profile-stat-title">فایل‌های مناسب من</div>
                 <div class="profile-stat-subtitle">مشاهده و مدیریت فایل‌های مطابق</div>
@@ -1701,6 +1701,64 @@ require_once __DIR__ . '/header.php';
                 </a>
 
                 
+
+                <!-- به‌روزرسانی پیشنهادها -->
+
+                <button
+                    type="button"
+                    id="refreshSuggestionsBtn"
+                    class="profile-menu-item"
+                    onclick="refreshSuggestions()"
+                    style="width:100%;font-family:inherit;text-align:right;cursor:pointer;"
+                >
+
+                    <div class="profile-menu-left">
+
+                        <div class="profile-menu-icon">
+
+                            <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                                <polyline points="21 3 21 9 15 9"/>
+                            </svg>
+
+                        </div>
+
+
+                        <div>
+
+                            <div class="profile-menu-title">
+                                به‌روزرسانی پیشنهادها
+                            </div>
+
+                            <div class="profile-menu-description">
+                                محاسبه‌ی مجدد فایل‌های مناسب درخواست‌های شما
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="profile-menu-arrow" id="refreshSuggestionsArrow">
+
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <polyline points="15 18 9 12 15 6"/>
+                        </svg>
+
+                    </div>
+
+                </button>
+
 
             </div>
 
@@ -2065,6 +2123,16 @@ require_once __DIR__ . '/header.php';
 </div>
 
 
+<!-- =========================================================
+     TOAST
+     ========================================================= -->
+
+<div
+    id="profileToast"
+    style="position:fixed;bottom:26px;right:50%;transform:translateX(50%) translateY(20px);background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 18px;font-size:13px;color:var(--text-primary);box-shadow:0 12px 30px rgba(0,0,0,.18);opacity:0;pointer-events:none;transition:opacity .3s ease,transform .3s ease;z-index:9999;max-width:calc(100vw - 40px);text-align:center;"
+></div>
+
+
 <script>
 
     /* =========================================================
@@ -2380,6 +2448,160 @@ require_once __DIR__ . '/header.php';
 
         }
     );
+
+
+    /* =========================================================
+       TOAST
+       ========================================================= */
+
+    function showProfileToast(message, ms) {
+
+        const toast =
+            document.getElementById(
+                'profileToast'
+            );
+
+        if (!toast) {
+            return;
+        }
+
+        toast.textContent =
+            message;
+
+        toast.style.opacity =
+            '1';
+
+        toast.style.transform =
+            'translateX(50%) translateY(0)';
+
+        clearTimeout(
+            window.__profileToastTimer
+        );
+
+        window.__profileToastTimer =
+            setTimeout(
+                function () {
+
+                    toast.style.opacity =
+                        '0';
+
+                    toast.style.transform =
+                        'translateX(50%) translateY(20px)';
+
+                },
+                ms || 3500
+            );
+    }
+
+
+    /* =========================================================
+       REFRESH SUGGESTIONS
+       محاسبه‌ی مجدد فایل‌های مناسب همه‌ی درخواست‌های کاربر
+       ========================================================= */
+
+    async function refreshSuggestions() {
+
+        const btn =
+            document.getElementById(
+                'refreshSuggestionsBtn'
+            );
+
+        const arrow =
+            document.getElementById(
+                'refreshSuggestionsArrow'
+            );
+
+        const arrowHtml =
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<polyline points="15 18 9 12 15 6"/>' +
+            '</svg>';
+
+        if (btn) {
+            btn.disabled = true;
+        }
+
+        if (arrow) {
+            arrow.innerHTML =
+                '<span style="font-size:18px;">⏳</span>';
+        }
+
+        showProfileToast(
+            '⏳ در حال به‌روزرسانی پیشنهادها...',
+            90000
+        );
+
+        try {
+
+            const tid =
+                localStorage.getItem(
+                    'melkino_telegram_id'
+                ) ||
+                sessionStorage.getItem(
+                    'reg_telegram_id'
+                ) ||
+                '';
+
+            const response =
+                await fetch(
+                    'my-request-matches.php?action=refresh_all&telegram_id=' +
+                    encodeURIComponent(tid),
+                    { cache: 'no-store' }
+                );
+
+            const data =
+                await response.json();
+
+            if (data && data.success) {
+
+                const matchCount =
+                    document.getElementById(
+                        'profileMatchCount'
+                    );
+
+                if (
+                    matchCount &&
+                    typeof data.total_matches === 'number'
+                ) {
+                    matchCount.textContent =
+                        data.total_matches;
+                }
+
+                showProfileToast(
+                    '✅ ' +
+                    (
+                        data.message ||
+                        'پیشنهادها به‌روزرسانی شد.'
+                    )
+                );
+
+            } else {
+
+                showProfileToast(
+                    '❌ ' +
+                    (
+                        (data && data.message) ||
+                        'به‌روزرسانی ناموفق بود.'
+                    )
+                );
+
+            }
+
+        } catch (error) {
+
+            showProfileToast(
+                '❌ خطا در ارتباط با سرور.'
+            );
+
+        }
+
+        if (btn) {
+            btn.disabled = false;
+        }
+
+        if (arrow) {
+            arrow.innerHTML = arrowHtml;
+        }
+    }
 
 </script>
 
