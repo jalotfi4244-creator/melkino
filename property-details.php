@@ -1141,6 +1141,16 @@ body .consultant-btn {
 }
 
 
+.glass-btn.in-compare {
+
+    color:
+        var(--primary);
+
+    border-color:
+        var(--primary);
+
+}
+
 .glass-btn.active {
 
     color:
@@ -2365,6 +2375,19 @@ body .consultant-btn {
 
                     </svg>
 
+                </button>
+
+
+                <button
+                    type="button"
+                    class="glass-btn"
+                    id="compareBtn"
+                    data-compare-add="<?= htmlspecialchars($propertyId, ENT_QUOTES, 'UTF-8') ?>"
+                    aria-label="افزودن به مقایسه"
+                    title="افزودن به مقایسه"
+                    style="font-size:19px;"
+                >
+                    ⚖️
                 </button>
 
             </div>
