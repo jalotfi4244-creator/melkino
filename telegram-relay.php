@@ -106,10 +106,18 @@ switch ($relayAction) {
         $response = function_exists('melkinoHttpPost') ? melkinoHttpPost($url, $postFields) : null;
 
         if ($response === null || $response === '') {
+            $proxySet = function_exists('melkinoProxy') ? trim((string)melkinoProxy()) : '';
+            $host = $platform === 'bale' ? 'tapi.bale.ai' : 'api.telegram.org';
+            if ($proxySet !== '') {
+                $failMsg = 'سرور با پروکسیِ تنظیم‌شده نتوانست به ' . $host
+                    . ' وصل شود (پروکسی پاسخ نمی‌دهد؛ نشانی/اعتبار آن را در تب «ربات و کانال» بررسی کن).';
+            } else {
+                $failMsg = 'سرور نتوانست به ' . $host
+                    . ' وصل شود (خروجیِ هاست مسدود است؛ در تب «ربات و کانال» یک پروکسی ثبت کن).';
+            }
             melkinoAdminJson([
                 'success' => false,
-                'message' => 'سرور نتوانست به ' . ($platform === 'bale' ? 'tapi.bale.ai' : 'api.telegram.org')
-                            . ' وصل شود (خروجیِ هاست مسدود است).',
+                'message' => $failMsg,
             ], 502);
         }
 

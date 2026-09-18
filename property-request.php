@@ -2697,25 +2697,16 @@ require_once __DIR__ . '/header.php';
     text-align:left;
 }
 
-/* نوار دکمه‌های پایینِ «ثبت درخواست»
-   نکته: نوار پایینِ سایت (bottom-nav) ثابت است (۷۵ پیکسل، در گوشی ۷۰).
-   قبلاً این نوار روی دکمه‌ها می‌افتاد و در مرحله‌ی آخر که سه دکمه
-   («مرحله قبل»، «ویرایش»، «ثبت نهایی») کنار هم می‌نشستند، در گوشی‌های
-   باریک روی هم می‌افتادند. حالا نوار بالای bottom-nav می‌نشیند،
-   دکمه‌ها اجازه‌ی رفتن به خط بعد را دارند و «ویرایش/ثبت نهایی» در یک
-   ردیفِ کامل جدا نمایش داده می‌شوند. */
 .bottom-actions{
     position:fixed;
     right:0;
     left:0;
-    bottom:calc(var(--bottom-nav-height, 75px) + env(safe-area-inset-bottom, 0px));
+    bottom:70px;
     width:100%;
-    padding:10px var(--space-3);
+    padding:var(--space-2) var(--space-3);
     background:var(--surface);
     border-top:1px solid var(--border);
-    border-radius:14px 14px 0 0;
     display:flex;
-    flex-wrap:wrap;
     gap:var(--space-2);
     z-index:9999;
     box-sizing:border-box;
@@ -2727,10 +2718,10 @@ require_once __DIR__ . '/header.php';
 .btn-secondary,
 .bottom-actions
 .btn-primary-full{
-    flex:1 1 130px;
+    flex:1;
     height:56px;
     min-height:56px;
-    min-width:0;
+    min-width:80px;
     border-radius:var(--radius-md);
     font-weight:700;
     font-size:16px;
@@ -2793,9 +2784,7 @@ require_once __DIR__ . '/header.php';
 
 .final-bottom-actions{
     width:100%;
-    flex:1 1 100%;
     display:none;
-    flex-wrap:wrap;
     gap:var(--space-2);
 }
 
@@ -3028,9 +3017,8 @@ input[type="checkbox"]{
 @media (max-width:480px){
 
     .bottom-actions{
-        bottom:calc(var(--bottom-nav-height, 75px) + env(safe-area-inset-bottom, 0px));
-        padding:9px 12px;
-        gap:8px;
+        bottom:64px;
+        padding:10px 12px;
     }
 
     .bottom-actions .btn-secondary,
@@ -3039,16 +3027,6 @@ input[type="checkbox"]{
         height:52px;
         min-height:52px;
         font-size:14px;
-        min-width:0;
-    }
-
-    .bottom-actions .btn-secondary,
-    .bottom-actions .btn-primary-full{
-        flex:1 1 100%;
-    }
-
-    .final-bottom-actions button{
-        flex:1 1 120px;
     }
 
     .row-half{
@@ -5962,11 +5940,6 @@ function updateRequestNavigation(){
     ){
 
         nextBtn.style.display =
-            'none';
-
-        // در مرحله‌ی آخر، دکمه‌ی «مرحله قبل» پنهان می‌شود تا سه دکمه در یک
-        // ردیف جمع نشوند و روی هم نیفتند (بازگشت با دکمه‌ی «✏️ ویرایش» است).
-        prevBtn.style.display =
             'none';
 
         finalActions.style.display =

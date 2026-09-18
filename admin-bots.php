@@ -9,7 +9,6 @@
 |   ?action=test_telegram    تست اتصال تلگرام
 |   ?action=test_bale        تست اتصال بله
 |   ?action=test_channel     تست دسترسی به کانال
-|   ?action=test_channel_send ارسال پیام آزمایشی به کانال
 |   ?action=test_sms         تست ارسال پیامک
 |   ?action=publish_get      دریافت تنظیمات انتشار (فیلدها + متن ثابت)
 |   ?action=publish_save     ذخیره تنظیمات انتشار
@@ -82,54 +81,6 @@ if ($melkinoBotAction !== '') {
             melkinoAdminJson([
                 'success' => true,
                 'message' => 'کانال در دسترس است: ' . ($decoded['result']['title'] ?? $channel),
-            ]);
-
-        /* --------------------------------------------------------------
-           ارسال پیام آزمایشی به کانال تلگرام
-           --------------------------------------------------------------
-           «تست دسترسی» فقط می‌گوید کانال دیده می‌شود؛ این endpoint یک پیام
-           واقعی به کانال می‌فرستد تا مطمئن شویم انتشار آگهی‌ها هم عملاً
-           کار می‌کند و خطا (اگر باشد) عیناً گزارش می‌شود.
-
-           نکته: روی هاست‌هایی که خروجیِ سرور بسته است، این مسیر خطا
-           می‌دهد و مسیر مرورگر (دکمه در پنل) جایگزین آن است.
-        -------------------------------------------------------------- */
-        case 'test_channel_send':
-            $data = melkinoAdminJsonBody();
-            $channel = trim((string)($data['channel'] ?? ''));
-            if ($channel === '') {
-                melkinoAdminJson(['success' => false, 'message' => 'شناسه کانال وارد نشده است.'], 422);
-            }
-            $token = melkinoTelegramToken();
-            if ($token === '') {
-                melkinoAdminJson(['success' => false, 'message' => 'ابتدا توکن تلگرام را ذخیره کن.'], 422);
-            }
-
-            $testText = "✅ پیام آزمایشی ملکینو\n"
-                . 'اگر این پیام را می‌بینی، انتشار آگهی‌ها در کانال درست کار می‌کند.';
-
-            $url = 'https://api.telegram.org/bot' . $token . '/sendMessage';
-            $body = http_build_query([
-                'chat_id' => $channel,
-                'text' => $testText,
-            ]);
-
-            $response = function_exists('melkinoHttpPost')
-                ? melkinoHttpPost($url, $body)
-                : @file_get_contents($url);
-            $decoded = json_decode((string)$response, true);
-
-            if (!is_array($decoded) || empty($decoded['ok'])) {
-                $desc = is_array($decoded)
-                    ? (string)($decoded['description'] ?? 'پاسخ نامعتبر')
-                    : 'ارتباط با api.telegram.org برقرار نشد (خروجیِ سرور بسته است — از دکمهٔ همان صفحه در مرورگر امتحان کن).';
-                melkinoAdminJson(['success' => false, 'message' => 'ارسال آزمایشی: ' . $desc], 400);
-            }
-
-            melkinoAdminJson([
-                'success' => true,
-                'message' => '✅ پیام آزمایشی در کانال ارسال شد؛ انتشار آگهی‌ها درست کار می‌کند.',
-                'message_id' => $decoded['result']['message_id'] ?? null,
             ]);
 
         /* --------------------------------------------------------------
@@ -425,26 +376,13 @@ if ($melkinoBotAction !== '') {
         <input type="text" id="botTelegramChannel" class="admin-input" dir="ltr" placeholder="@melkino_shahrood">
         <div class="admin-field-help">آگهی‌های منتشرشده می‌توانند به این کانال ارسال شوند.</div>
 
-        <label class="admin-field-label">لینک عضویت در کانال (اختیاری)</label>
-        <input type="text" id="botTelegramChannelLink" class="admin-input" dir="ltr" placeholder="https://t.me/melkino_shahrood">
-        <div class="admin-field-help">
-            همان لینکی که کاربر با زدن دکمه‌ی «📢 کانال تلگرام ملکینو» در پروفایل باز می‌کند.
-            اگر شناسه‌ی کانال با @ شروع شود، خودکار ساخته می‌شود؛ برای کانال خصوصی (شناسه‌ی عددی)
-            این لینک را از تلگرام کپی و اینجا بگذار.
-        </div>
-
         <label class="admin-field-label">نام کاربری ربات (بدون @)</label>
         <input type="text" id="botTelegramUsername" class="admin-input" dir="ltr" placeholder="melkino_bot">
         <div class="admin-field-help">برای ساخت دکمه‌ی «ورود از طریق تلگرام» در مرورگر معمولی استفاده می‌شود.</div>
 
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
-            <button type="button" class="btn-secondary" style="padding:8px 16px;font-size:13px;" onclick="testChannelConnection()">
-                📢 تست دسترسی به کانال
-            </button>
-            <button type="button" class="btn-secondary" style="padding:8px 16px;font-size:13px;" onclick="testChannelSend()">
-                📨 ارسال پیام آزمایشی به کانال
-            </button>
-        </div>
+        <button type="button" class="btn-secondary" style="padding:8px 16px;font-size:13px;margin-top:8px;" onclick="testChannelConnection()">
+            📢 تست دسترسی به کانال
+        </button>
     </div>
 </div>
 

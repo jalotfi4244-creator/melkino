@@ -1,7 +1,7 @@
 /* =========================================================
    ویجت مقایسه ملک‌ها (مشترک همه صفحات)
    - هر دکمه‌ای با [data-compare-add="AD-ID"] ملک را به مقایسه اضافه می‌کند
-   - حباب شناور «⚖️ مقایسه (N)» به صفحهٔ مستقلِ مقایسه لینک می‌دهد
+   - حباب شناور «⚖️ مقایسه (N)» به بخش مقایسه پروفایل لینک می‌دهد
    ========================================================= */
 (function () {
     'use strict';
@@ -67,7 +67,7 @@
         }
         pillEl = document.createElement('a');
         pillEl.id = 'melkinoComparePill';
-        pillEl.href = 'compare-page.php';
+        pillEl.href = 'profile.php#compareSection';
         pillEl.setAttribute('style', [
             'position:fixed',
             'bottom:22px',
@@ -91,7 +91,7 @@
 
     function updatePill(count) {
         // در خود صفحه پروفایل حباب لازم نیست
-        if (window.location.pathname.indexOf('compare-page.php') !== -1) {
+        if (window.location.pathname.indexOf('profile.php') !== -1) {
             return;
         }
         const pill = ensurePill();
@@ -143,7 +143,7 @@
                 if (data.already) {
                     compareToast('این ملک قبلاً در «' + (data.group_name || 'مقایسه') + '» هست.');
                 } else {
-                    compareToast('✅ به «' + (data.group_name || 'مقایسه') + '» اضافه شد. برای دیدن جدول امتیازها: مقایسهٔ ملک‌ها');
+                    compareToast('✅ به «' + (data.group_name || 'مقایسه') + '» اضافه شد. مدیریت در پروفایل ← مقایسه ملک‌ها');
                 }
                 if (btn) {
                     btn.classList.add('in-compare');

@@ -113,27 +113,21 @@
     };
 
     /**
-     * فراخوانی کامل: ابتدا از مرورگر، در صورت شکست از سرور.
-     *
-     * نکته‌ی مهم (باگِ قبلی):
-     *   قبلاً اگر فراخوانیِ مرورگر شکست می‌خورد، فقط نتیجهٔ سرور برگردانده
-     *   می‌شد. روی هاست‌هایی مثل InfinityFree که خروجیِ سرور به تلگرام بسته
-     *   است، همیشه پیامِ «سرور نتوانست وصل شود» دیده می‌شد و *علتِ واقعیِ*
-     *   خطای مرورگر (مثلاً «ربات در کانال ادمین نیست» یا «chat not found»)
-     *   گم می‌شد. حالا هر دو دلیل برگردانده می‌شوند تا ادمین بفهمد مشکل
-     *   دقیقاً چیست.
-     *
-     * خروجی: { ok, result, description, via, browser_description, server_description }
+     * فراخوانی کامل: ابتدا از مرورگر، در صورت شکست از سرور
+     * خروجی: { ok, result, description, via }
      */
     window.melkinoApiCall = async function (platform, method, params, options) {
         options = options || {};
 
-        let clientResult = null;
+        var clientDescription = '';
 
         if (!options.serverOnly) {
-            clientResult = await window.melkinoClientCall(platform, method, params, options);
+            const clientResult = await window.melkinoClientCall(platform, method, params, options);
             if (clientResult && clientResult.ok) {
                 return clientResult;
+            }
+            if (clientResult && clientResult.description) {
+                clientDescription = clientResult.description;
             }
             if (options.clientOnly) {
                 return clientResult;
@@ -142,28 +136,16 @@
 
         const serverResult = await window.melkinoServerCall(platform, method, params);
 
-        if (serverResult && serverResult.ok) {
-            return serverResult;
+        // هر دو مسیر شکست خورد: علتِ هر دو گفته می‌شود تا راه‌حل معلوم باشد
+        // (مرورگر = فیلترشکن؛ سرور = پروکسی در تب ربات‌ها).
+        if (serverResult && !serverResult.ok && clientDescription && !options.serverOnly) {
+            serverResult.description =
+                (serverResult.description || 'خطای نامشخص')
+                + ' — همچنین: ' + clientDescription
+                + ' (راه‌حل: فیلترشکن را روشن کن یا در تب «ربات و کانال» یک پروکسی برای سرور ثبت کن).';
         }
 
-        const browserDesc = (clientResult && clientResult.description) || '';
-        const serverDesc = (serverResult && serverResult.description) || '';
-
-        // اگر مرورگر دلیلِ مشخصی داده (خطای خودِ تلگرام/بله)، همان مهم‌تر
-        // است؛ در غیر این صورت خطای سرور نمایش داده می‌شود.
-        let description = browserDesc || serverDesc;
-        if (browserDesc && serverDesc && browserDesc !== serverDesc) {
-            description = browserDesc + ' (مسیر پشتیبانِ سرور هم ناموفق بود: ' + serverDesc + ')';
-        }
-
-        return {
-            ok: false,
-            result: null,
-            description: description,
-            via: 'none',
-            browser_description: browserDesc,
-            server_description: serverDesc
-        };
+        return serverResult;
     };
 
     /** ثبتِ نتیجه‌ی ارسال موفق برای یک آگهی */

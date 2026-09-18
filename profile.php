@@ -6,8 +6,6 @@ session_start();
 // قبلاً header.php اول لود می‌شد (که خروجی HTML می‌دهد) و بعد config.php.
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db_helpers.php';
-require_once __DIR__ . '/bot-settings.php';
-require_once __DIR__ . '/compare-lib.php';
 
 $userName  = trim((string)($_SESSION['user_name'] ?? '')) ?: 'کاربر ملکینو';
 $userPhone = trim((string)($_SESSION['user_phone'] ?? ''));
@@ -47,20 +45,6 @@ if ($userPhone === '' && empty($identity['telegram_id']) && empty($identity['use
         <a href="login.php" style="display:block;padding:14px;border-radius:12px;background:linear-gradient(135deg,var(--primary,#0E7C6E),#0B5D5B);color:#fff;text-decoration:none;font-weight:700;">
             🔑 ورود به حساب کاربری
         </a>
-
-        <!--
-            دکمهٔ «تلاش دوباره» برای کاربرانِ مینی‌اپ تلگرام/بله:
-            اگر همگام‌سازی هویت یک‌بار ناموفق مانده باشد (نت ضعیف، توکن
-            تازه‌ذخیره‌شده و...)، با این دکمه پرچم تلاشِ قبلی پاک و صفحه
-            دوباره بارگذاری می‌شود تا پروفایل واقعی باز شود.
-        -->
-        <button
-            type="button"
-            onclick="(function(){try{sessionStorage.removeItem('melkino_profile_synced');}catch(e){}location.reload();})();"
-            style="display:block;width:100%;margin-top:10px;padding:12px;border-radius:12px;background:transparent;border:1px solid var(--border,#223330);color:var(--text-secondary,#A8B1AE);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;"
-        >
-            🔄 تلاش دوباره (کاربران تلگرام / بله)
-        </button>
     </div>
     <?php
     require_once __DIR__ . '/footer.php';
@@ -99,31 +83,6 @@ if ($pdo instanceof PDO) {
         }
     }
 }
-
-/*
-|--------------------------------------------------------------------------
-| کارت‌های پروفایل: تعداد مقایسه + لینک کانال تلگرام
-|--------------------------------------------------------------------------
-| تعداد مقایسه اینجا (سمت سرور) خوانده می‌شود تا کارتِ مقایسه حتی بدون
-| جاوااسکریپت هم عدد درست را نشان دهد. لینک کانال هم از تنظیماتِ
-| «ربات و کانال» پنل ادمین ساخته می‌شود.
-|--------------------------------------------------------------------------
-*/
-$compareCount = 0;
-if ($pdo instanceof PDO) {
-    try {
-        melkinoEnsureCompareTables($pdo);
-        melkinoCompareMergeGuest($pdo, $identity);
-        [$cmpWhere, $cmpParams] = melkinoCompareOwner($identity, 'ci');
-        if ($cmpWhere !== '') {
-            $compareCount = melkinoCompareCount($pdo, $cmpWhere, $cmpParams);
-        }
-    } catch (Throwable $e) {
-        $compareCount = 0;
-    }
-}
-
-$channelUrl = function_exists('melkinoChannelUrl') ? melkinoChannelUrl() : '';
 
 /*
 |--------------------------------------------------------------------------
@@ -1188,6 +1147,335 @@ require_once __DIR__ . '/header.php';
     .match-stat-number { font-size: 24px; line-height: 1; }
 
 
+    /* =========================================================
+       COMPARE (مقایسه ملک‌ها)
+       ========================================================= */
+
+    .compare-tabs {
+
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+
+    .compare-tab {
+
+        flex: 1 1 0;
+        min-width: 110px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+
+        padding: 10px 8px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-secondary);
+
+        font-family: inherit;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    .compare-tab.active {
+
+        color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    .compare-tab .cmp-count {
+
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+
+        font-size: 11px;
+        font-weight: 700;
+        padding: 1px 8px;
+        white-space: nowrap;
+    }
+
+    .compare-tab.active .cmp-count {
+
+        border-color: var(--primary);
+        color: var(--primary);
+    }
+
+    .compare-rename {
+
+        background: none;
+        border: none;
+        cursor: pointer;
+
+        font-size: 14px;
+        padding: 2px 4px;
+        line-height: 1;
+    }
+
+    .compare-items {
+
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+
+        margin-bottom: 12px;
+    }
+
+    .compare-empty {
+
+        text-align: center;
+        color: var(--text-secondary);
+
+        padding: 18px 10px;
+
+        font-size: 13px;
+        line-height: 2.1;
+    }
+
+    .compare-item {
+
+        display: flex;
+        align-items: center;
+        gap: 10px;
+
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+    }
+
+    .compare-item img {
+
+        width: 56px;
+        height: 56px;
+
+        border-radius: 10px;
+        object-fit: cover;
+
+        flex: 0 0 auto;
+        background: var(--bg);
+    }
+
+    .compare-item-noimg {
+
+        width: 56px;
+        height: 56px;
+
+        border-radius: 10px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        flex: 0 0 auto;
+        background: var(--bg);
+
+        font-size: 24px;
+    }
+
+    .compare-item-info {
+
+        flex: 1;
+        min-width: 0;
+    }
+
+    .compare-item-title {
+
+        font-weight: 700;
+        font-size: 13px;
+
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .compare-item-sub {
+
+        font-size: 11px;
+        color: var(--text-secondary);
+
+        margin-top: 3px;
+
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .compare-item-btns {
+
+        display: flex;
+        gap: 4px;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .compare-mini-btn {
+
+        border: 1px solid var(--border);
+        background: var(--bg);
+        border-radius: 8px;
+
+        font-size: 11px;
+        font-family: inherit;
+        font-weight: 700;
+        color: var(--text-secondary);
+
+        padding: 5px 8px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .compare-mini-btn.danger {
+
+        color: #dc2626;
+    }
+
+    .compare-actions {
+
+        display: flex;
+        gap: 8px;
+
+        margin-bottom: 12px;
+    }
+
+    .cmp-btn {
+
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-secondary);
+        border-radius: 12px;
+
+        font-family: inherit;
+        font-weight: 700;
+        font-size: 13px;
+
+        padding: 11px 14px;
+        cursor: pointer;
+    }
+
+    .cmp-btn-primary {
+
+        flex: 1;
+
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+    }
+
+    .compare-score-wrap {
+
+        overflow-x: auto;
+
+        border: 1px solid var(--border);
+        border-radius: 12px;
+    }
+
+    .compare-score-table {
+
+        width: 100%;
+        min-width: 520px;
+
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .compare-score-table th,
+    .compare-score-table td {
+
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--border);
+
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .compare-score-table thead th {
+
+        background: var(--bg);
+        font-weight: 800;
+        font-size: 12px;
+    }
+
+    .compare-score-table tbody th {
+
+        text-align: right;
+        color: var(--text-secondary);
+        font-weight: 600;
+        background: var(--surface);
+
+        position: sticky;
+        right: 0;
+    }
+
+    .compare-score-table tr:last-child th,
+    .compare-score-table tr:last-child td {
+
+        border-bottom: none;
+    }
+
+    .compare-score-table td.winner-col {
+
+        background: rgba(14, 124, 110, .09);
+        font-weight: 800;
+    }
+
+    .compare-total {
+
+        font-size: 17px;
+        font-weight: 800;
+        color: var(--primary);
+    }
+
+    .compare-prop-head {
+
+        display: block;
+        max-width: 130px;
+
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+
+        margin: 0 auto 4px;
+    }
+
+    .compare-view-link {
+
+        color: var(--primary);
+        font-weight: 700;
+        text-decoration: none;
+        font-size: 12px;
+    }
+
+    .compare-highlights {
+
+        margin-top: 10px;
+        padding: 10px 12px;
+
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+
+        font-size: 12px;
+        line-height: 2.1;
+        color: var(--text-secondary);
+    }
+
+    .compare-warn {
+
+        margin-top: 10px;
+        padding: 10px 12px;
+
+        border-radius: 12px;
+        background: rgba(217, 119, 6, .1);
+        border: 1px solid rgba(217, 119, 6, .3);
+
+        font-size: 12px;
+        line-height: 2;
+    }
 </style>
 
 
@@ -2024,116 +2312,73 @@ require_once __DIR__ . '/header.php';
              LOGOUT
              ===================================================== -->
 
-        <!-- =====================================================
-             کارتِ مقایسهٔ ملک‌ها → صفحهٔ مستقل مقایسه
-             ===================================================== -->
-
         <section class="profile-section" id="compareSection">
 
-            <a href="compare-page.php" class="profile-menu-item">
+            <div class="profile-section-header">
 
-                <div class="profile-menu-left">
+                <div class="profile-section-title">
 
-                    <div class="profile-menu-icon">
-                        <span style="font-size:19px;line-height:1;">⚖️</span>
+                    <div class="profile-section-icon">
+
+                        <span style="font-size:20px;line-height:1;">⚖️</span>
+
                     </div>
 
                     <div>
 
-                        <div class="profile-menu-title">
-                            مقایسهٔ ملک‌ها
-                        </div>
+                        <h2>
+                            مقایسه ملک‌ها
+                        </h2>
 
-                        <div class="profile-menu-description">
-                            <?php if ($compareCount > 0): ?>
-                                <?= (int)$compareCount ?> ملک در مقایسه — برای دیدن جدول امتیازها بزن
-                            <?php else: ?>
-                                ملک‌ها را به مقایسه اضافه کن و اینجا کنار هم ببین
-                            <?php endif; ?>
-                        </div>
+                        <p>
+                            تا ۵ ملک در هر دسته — خودت انتخاب کن کدام‌ها با هم مقایسه شوند
+                        </p>
 
                     </div>
 
                 </div>
 
-                <div style="display:flex;align-items:center;gap:10px;">
+            </div>
 
-                    <span
-                        id="compareCardCount"
-                        style="min-width:26px;height:26px;padding:0 8px;border-radius:999px;display:<?= $compareCount > 0 ? 'inline-flex' : 'none' ?>;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--primary),#0b5d5b);color:#fff;font-size:11px;font-weight:800;"
-                    ><?= (int)$compareCount ?></span>
 
-                    <div class="profile-menu-arrow">
+            <div
+                class="compare-tabs"
+                id="compareTabs"
+            ></div>
 
-                        <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <polyline points="15 18 9 12 15 6"/>
-                        </svg>
 
-                    </div>
+            <div
+                class="compare-items"
+                id="compareItems"
+            ></div>
 
-                </div>
 
-            </a>
+            <div class="compare-actions">
+
+                <button
+                    type="button"
+                    class="cmp-btn cmp-btn-primary"
+                    id="compareScoreBtn"
+                    onclick="cmpScore()"
+                >
+                    📊 مقایسه و امتیازدهی
+                </button>
+
+                <button
+                    type="button"
+                    class="cmp-btn"
+                    id="compareClearBtn"
+                    onclick="cmpClear()"
+                >
+                    🗑 خالی کردن دسته
+                </button>
+
+            </div>
+
+
+            <div id="compareScore"></div>
 
         </section>
-
-
-        <?php if (!empty($channelUrl)): ?>
-        <!-- =====================================================
-             ورود به کانال تلگرام ملکینو
-             ===================================================== -->
-
-        <section class="profile-section">
-
-            <a
-                href="<?= htmlspecialchars($channelUrl, ENT_QUOTES, 'UTF-8') ?>"
-                class="profile-menu-item"
-                target="_blank"
-                rel="noopener"
-            >
-
-                <div class="profile-menu-left">
-
-                    <div class="profile-menu-icon">
-                        <span style="font-size:19px;line-height:1;">📢</span>
-                    </div>
-
-                    <div>
-
-                        <div class="profile-menu-title">
-                            کانال تلگرام ملکینو
-                        </div>
-
-                        <div class="profile-menu-description">
-                            جدیدترین آگهی‌ها را در کانال ببین و عضو شو
-                        </div>
-
-                    </div>
-
-                </div>
-
-                <div class="profile-menu-arrow">
-
-                    <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    >
-                        <polyline points="15 18 9 12 15 6"/>
-                    </svg>
-
-                </div>
-
-            </a>
-
-        </section>
-        <?php endif; ?>
 
 
         <section class="profile-section">
@@ -2759,28 +3004,834 @@ require_once __DIR__ . '/header.php';
     }
 
 
+    /* =========================================================
+       COMPARE (مقایسه ملک‌ها — ۳ دسته، هر دسته تا ۵ ملک)
+       ========================================================= */
+
+    let cmpGroups = [];
+    let cmpActive = 1;
+
+
+    function cmpEsc(value) {
+
+        return String(
+            value ?? ''
+        ).replace(
+            /[&<>"']/g,
+            function (c) {
+
+                return {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                }[c];
+            }
+        );
+    }
+
+
+    function cmpFa(value) {
+
+        return String(value).replace(
+            /\d/g,
+            function (d) {
+                return '۰۱۲۳۴۵۶۷۸۹'[Number(d)];
+            }
+        );
+    }
+
+
+    function cmpMoney(value) {
+
+        const n = Number(
+            String(value).replace(/,/g, '')
+        );
+
+        if (!n || n <= 0) {
+            return '';
+        }
+
+        return n.toLocaleString('fa-IR');
+    }
+
+
+    async function cmpApi(action, data) {
+
+        const body = new URLSearchParams();
+        const payload = data || {};
+
+        for (const k in payload) {
+
+            if (
+                Object.prototype.hasOwnProperty.call(payload, k)
+            ) {
+                body.append(k, payload[k]);
+            }
+        }
+
+        const res = await fetch(
+            'compare.php?action=' + encodeURIComponent(action),
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type':
+                        'application/x-www-form-urlencoded'
+                },
+                body: body.toString()
+            }
+        );
+
+        return res.json();
+    }
+
+
+    function cmpActiveGroup() {
+
+        for (const g of cmpGroups) {
+
+            if (Number(g.no) === Number(cmpActive)) {
+                return g;
+            }
+        }
+
+        return {
+            no: cmpActive,
+            name: '',
+            count: 0,
+            items: []
+        };
+    }
+
+
+    function cmpGroupName(no) {
+
+        for (const g of cmpGroups) {
+
+            if (Number(g.no) === Number(no)) {
+                return g.name || ('دسته ' + cmpFa(no));
+            }
+        }
+
+        return 'دسته ' + cmpFa(no);
+    }
+
+
+    async function cmpLoad() {
+
+        const tabsEl =
+            document.getElementById('compareTabs');
+
+        const itemsEl =
+            document.getElementById('compareItems');
+
+        if (!tabsEl || !itemsEl) {
+            return;
+        }
+
+        try {
+
+            const res =
+                await fetch('compare.php?action=list');
+
+            const data = await res.json();
+
+            if (!data || !data.success) {
+
+                itemsEl.innerHTML =
+                    '<div class="compare-empty">خطا در بارگذاری مقایسه.</div>';
+
+                return;
+            }
+
+            cmpGroups =
+                Array.isArray(data.groups) ? data.groups : [];
+
+            cmpRenderTabs();
+            cmpRenderItems();
+
+        } catch (error) {
+
+            itemsEl.innerHTML =
+                '<div class="compare-empty">خطا در ارتباط با سرور.</div>';
+        }
+    }
+
+
+    function cmpRenderTabs() {
+
+        const tabsEl =
+            document.getElementById('compareTabs');
+
+        if (!tabsEl) {
+            return;
+        }
+
+        tabsEl.innerHTML = cmpGroups.map(
+            function (g) {
+
+                const active =
+                    Number(g.no) === Number(cmpActive)
+                        ? ' active'
+                        : '';
+
+                return '' +
+                    '<button type="button" class="compare-tab' + active + '" ' +
+                        'data-cmp-tab="' + g.no + '">' +
+                        '<span>' +
+                            cmpEsc(g.name || ('دسته ' + cmpFa(g.no))) +
+                        '</span>' +
+                        '<span class="cmp-count">' +
+                            cmpFa(g.count || 0) + ' / ' + cmpFa(5) +
+                        '</span>' +
+                        '<span class="compare-rename" ' +
+                            'data-cmp-rename="' + g.no + '" ' +
+                            'title="تغییر نام دسته">✏️</span>' +
+                    '</button>';
+            }
+        ).join('');
+    }
+
+
+    function cmpItemPrice(it) {
+
+        const tx = String(it.transaction_type || '');
+
+        if (
+            tx.indexOf('اجاره') !== -1 ||
+            tx.indexOf('رهن') !== -1
+        ) {
+
+            const dep = cmpMoney(it.deposit);
+            const rent = cmpMoney(it.rent_monthly);
+
+            if (dep || rent) {
+                return (
+                    'ودیعه ' + (dep || '—') +
+                    ' • اجاره ' + (rent || '—')
+                );
+            }
+
+            return '';
+        }
+
+        return cmpMoney(it.price_sell || it.total_price);
+    }
+
+
+    function cmpRenderItems() {
+
+        const itemsEl =
+            document.getElementById('compareItems');
+
+        if (!itemsEl) {
+            return;
+        }
+
+        const g = cmpActiveGroup();
+
+        const items =
+            Array.isArray(g.items) ? g.items : [];
+
+        if (!items.length) {
+
+            itemsEl.innerHTML =
+                '<div class="compare-empty">' +
+                    'هنوز ملکی در این دسته نیست.<br>' +
+                    'تو لیست ملک‌ها یا صفحه جزئیات، دکمه ⚖️ رو بزن تا ملک بیاد اینجا.' +
+                '</div>';
+
+            return;
+        }
+
+        itemsEl.innerHTML = items.map(
+            function (it) {
+
+                const id = String(it.id);
+                const img = String(it.image || '').trim();
+
+                const imgHtml =
+                    img !== ''
+                        ? '<img src="' + cmpEsc(img) + '" alt="" loading="lazy">'
+                        : '<div class="compare-item-noimg">🏠</div>';
+
+                const subs = [];
+
+                if (it.location) {
+                    subs.push(it.location);
+                }
+
+                if (it.area) {
+                    subs.push(cmpFa(it.area) + ' متر');
+                }
+
+                if (it.rooms) {
+                    subs.push(cmpFa(it.rooms) + ' خوابه');
+                }
+
+                const price = cmpItemPrice(it);
+
+                if (price) {
+                    subs.push(price + ' تومان');
+                }
+
+                const moveBtns = [1, 2, 3]
+                    .filter(
+                        function (n) {
+                            return n !== Number(cmpActive);
+                        }
+                    )
+                    .map(
+                        function (n) {
+
+                            const dest = cmpGroupName(n);
+
+                            return (
+                                '<button type="button" class="compare-mini-btn" ' +
+                                    'data-cmp-act="move" ' +
+                                    'data-cmp-id="' + cmpEsc(id) + '" ' +
+                                    'data-cmp-to="' + n + '" ' +
+                                    'title="انتقال به ' + cmpEsc(dest) + '">' +
+                                    '→ ' + cmpEsc(dest) +
+                                '</button>'
+                            );
+                        }
+                    )
+                    .join('');
+
+                return '' +
+                    '<div class="compare-item">' +
+                        imgHtml +
+                        '<div class="compare-item-info">' +
+                            '<div class="compare-item-title">' +
+                                cmpEsc(it.title || ('ملک ' + id)) +
+                            '</div>' +
+                            '<div class="compare-item-sub">' +
+                                cmpEsc(subs.join(' • ') || '—') +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="compare-item-btns">' +
+                            moveBtns +
+                            '<button type="button" class="compare-mini-btn danger" ' +
+                                'data-cmp-act="remove" ' +
+                                'data-cmp-id="' + cmpEsc(id) + '">' +
+                                '✕ حذف' +
+                            '</button>' +
+                        '</div>' +
+                    '</div>';
+            }
+        ).join('');
+    }
+
+
+    async function cmpRemove(adId) {
+
+        try {
+
+            const data = await cmpApi(
+                'remove',
+                { ad_id: adId }
+            );
+
+            if (!data || !data.success) {
+
+                showProfileToast(
+                    data && data.message
+                        ? data.message
+                        : '❌ خطا در حذف.'
+                );
+
+                return;
+            }
+
+            document.getElementById(
+                'compareScore'
+            ).innerHTML = '';
+
+            cmpLoad();
+
+            document.dispatchEvent(
+                new CustomEvent('melkino:compare-changed')
+            );
+
+        } catch (error) {
+
+            showProfileToast(
+                '❌ خطا در ارتباط با سرور.'
+            );
+        }
+    }
+
+
+    async function cmpMove(adId, to) {
+
+        try {
+
+            const data = await cmpApi(
+                'move',
+                { ad_id: adId, group: to }
+            );
+
+            if (!data || !data.success) {
+
+                showProfileToast(
+                    data && data.message
+                        ? data.message
+                        : '❌ خطا در انتقال.'
+                );
+
+                return;
+            }
+
+            showProfileToast(
+                '✅ منتقل شد به ' + cmpGroupName(to)
+            );
+
+            document.getElementById(
+                'compareScore'
+            ).innerHTML = '';
+
+            cmpLoad();
+
+            document.dispatchEvent(
+                new CustomEvent('melkino:compare-changed')
+            );
+
+        } catch (error) {
+
+            showProfileToast(
+                '❌ خطا در ارتباط با سرور.'
+            );
+        }
+    }
+
+
+    async function cmpRename(no) {
+
+        const current = cmpGroupName(no);
+
+        const name = window.prompt(
+            'نام جدید دسته:',
+            current
+        );
+
+        if (name === null) {
+            return;
+        }
+
+        try {
+
+            const data = await cmpApi(
+                'rename_group',
+                { group: no, name: name.trim() }
+            );
+
+            if (!data || !data.success) {
+
+                showProfileToast(
+                    '❌ خطا در تغییر نام.'
+                );
+
+                return;
+            }
+
+            cmpLoad();
+
+        } catch (error) {
+
+            showProfileToast(
+                '❌ خطا در ارتباط با سرور.'
+            );
+        }
+    }
+
+
+    async function cmpClear() {
+
+        const g = cmpActiveGroup();
+
+        const items =
+            Array.isArray(g.items) ? g.items : [];
+
+        if (!items.length) {
+
+            showProfileToast(
+                'این دسته خالی است.'
+            );
+
+            return;
+        }
+
+        if (
+            !window.confirm(
+                'همه ملک‌های «' +
+                cmpGroupName(cmpActive) +
+                '» حذف شود؟'
+            )
+        ) {
+            return;
+        }
+
+        try {
+
+            await cmpApi(
+                'clear_group',
+                { group: cmpActive }
+            );
+
+            document.getElementById(
+                'compareScore'
+            ).innerHTML = '';
+
+            cmpLoad();
+
+            document.dispatchEvent(
+                new CustomEvent('melkino:compare-changed')
+            );
+
+        } catch (error) {
+
+            showProfileToast(
+                '❌ خطا در ارتباط با سرور.'
+            );
+        }
+    }
+
+
+    async function cmpScore() {
+
+        const box =
+            document.getElementById('compareScore');
+
+        if (!box) {
+            return;
+        }
+
+        box.innerHTML =
+            '<div class="compare-empty">⏳ در حال امتیازدهی…</div>';
+
+        try {
+
+            const data = await cmpApi(
+                'score',
+                { group: cmpActive }
+            );
+
+            if (!data || !data.success) {
+
+                box.innerHTML =
+                    '<div class="compare-empty">' +
+                        cmpEsc(
+                            data && data.message
+                                ? data.message
+                                : 'خطا در امتیازدهی.'
+                        ) +
+                    '</div>';
+
+                return;
+            }
+
+            cmpRenderScore(data);
+
+        } catch (error) {
+
+            box.innerHTML =
+                '<div class="compare-empty">خطا در ارتباط با سرور.</div>';
+        }
+    }
+
+
+    function cmpRenderScore(d) {
+
+        const box =
+            document.getElementById('compareScore');
+
+        const ads = Array.isArray(d.ads) ? d.ads : [];
+        const scores = d.scores || {};
+        const winner = String(d.winner || '');
+
+        if (!ads.length) {
+
+            box.innerHTML =
+                '<div class="compare-empty">ملکی برای مقایسه نیست.</div>';
+
+            return;
+        }
+
+        const metricRows = [
+            ['price', 'قیمت (از ۳۵)'],
+            ['area', 'متراژ (از ۱۵)'],
+            ['rooms', 'خواب (از ۱۰)'],
+            ['year', 'سال ساخت (از ۱۰)'],
+            ['amenities', 'امکانات (از ۱۵)'],
+            ['quality', 'کیفیت آگهی (از ۱۵)']
+        ];
+
+        let head = '<tr><th></th>';
+
+        ads.forEach(
+            function (ad) {
+
+                const id = String(ad.id);
+                const s = scores[id] || {};
+                const isWinner = id === winner;
+
+                const crown = isWinner ? '🏆 ' : '';
+
+                const total =
+                    (s.total !== undefined && s.total !== null)
+                        ? s.total
+                        : '—';
+
+                head +=
+                    '<th class="' + (isWinner ? 'winner-col' : '') + '">' +
+                        '<span class="compare-prop-head">' +
+                            crown + cmpEsc(ad.title || ('ملک ' + id)) +
+                        '</span>' +
+                        '<span class="compare-total">' +
+                            cmpFa(total) +
+                        '</span>' +
+                        '<span style="font-size:11px;color:var(--text-secondary);">' +
+                            ' / ' + cmpFa(100) +
+                        '</span>' +
+                    '</th>';
+            }
+        );
+
+        head += '</tr>';
+
+        let bodyHtml = '';
+
+        metricRows.forEach(
+            function (row) {
+
+                bodyHtml += '<tr><th>' + row[1] + '</th>';
+
+                ads.forEach(
+                    function (ad) {
+
+                        const id = String(ad.id);
+
+                        const b =
+                            (scores[id] && scores[id].breakdown)
+                                ? scores[id].breakdown
+                                : {};
+
+                        const v =
+                            (b[row[0]] !== undefined && b[row[0]] !== null)
+                                ? b[row[0]]
+                                : '—';
+
+                        bodyHtml +=
+                            '<td class="' +
+                                (id === winner ? 'winner-col' : '') +
+                            '">' +
+                                cmpFa(v) +
+                            '</td>';
+                    }
+                );
+
+                bodyHtml += '</tr>';
+            }
+        );
+
+        const specRows = [
+            ['متراژ', function (ad) {
+                return ad.area ? cmpFa(ad.area) + ' متر' : '—';
+            }],
+            ['خواب', function (ad) {
+                return ad.rooms ? cmpFa(ad.rooms) + ' خوابه' : '—';
+            }],
+            ['سال ساخت', function (ad) {
+                return ad.year ? cmpFa(ad.year) : '—';
+            }],
+            ['امکانات', function (ad) {
+                return (
+                    Number(ad.amenity_count) > 0
+                        ? cmpFa(ad.amenity_count) + ' مورد'
+                        : '—'
+                );
+            }],
+            ['قیمت هر متر', function (ad) {
+
+                const s = scores[String(ad.id)] || {};
+
+                return s.price_per_m
+                    ? cmpMoney(s.price_per_m) + ' تومان'
+                    : '—';
+            }],
+            ['نوع معامله', function (ad) {
+                return ad.transaction_type || '—';
+            }]
+        ];
+
+        specRows.forEach(
+            function (row) {
+
+                bodyHtml += '<tr><th>' + row[0] + '</th>';
+
+                ads.forEach(
+                    function (ad) {
+
+                        bodyHtml +=
+                            '<td class="' +
+                                (String(ad.id) === winner ? 'winner-col' : '') +
+                            '">' +
+                                cmpEsc(row[1](ad)) +
+                            '</td>';
+                    }
+                );
+
+                bodyHtml += '</tr>';
+            }
+        );
+
+        bodyHtml += '<tr><th>مشاهده</th>';
+
+        ads.forEach(
+            function (ad) {
+
+                bodyHtml +=
+                    '<td class="' +
+                        (String(ad.id) === winner ? 'winner-col' : '') +
+                    '">' +
+                        '<a class="compare-view-link" ' +
+                            'href="property-details.php?id=' +
+                            encodeURIComponent(ad.id) + '">' +
+                            'مشاهده ملک' +
+                        '</a>' +
+                    '</td>';
+            }
+        );
+
+        bodyHtml += '</tr>';
+
+        let html =
+            '<div class="compare-score-wrap">' +
+                '<table class="compare-score-table">' +
+                    '<thead>' + head + '</thead>' +
+                    '<tbody>' + bodyHtml + '</tbody>' +
+                '</table>' +
+            '</div>';
+
+        if (d.mixed_types) {
+
+            html +=
+                '<div class="compare-warn">' +
+                    '⚠️ این دسته هم ملک فروشی و هم اجاره‌ای دارد؛ ' +
+                    'مقایسه قیمت تقریبی است (اجاره = ودیعه + ۱۲ ماه اجاره).' +
+                '</div>';
+        }
+
+        if (
+            Array.isArray(d.highlights) &&
+            d.highlights.length
+        ) {
+
+            html +=
+                '<div class="compare-highlights">✨ ' +
+                    d.highlights.map(
+                        function (h) {
+                            return cmpEsc(h);
+                        }
+                    ).join('<br>✨ ') +
+                '</div>';
+        }
+
+        box.innerHTML = html;
+    }
+
+
     document.addEventListener(
         'DOMContentLoaded',
         function () {
 
-            /*
-             * مدیریتِ کاملِ مقایسه به صفحهٔ مستقلِ «compare-page.php»
-             * منتقل شده است؛ اینجا فقط شمارندهٔ کارت تا حد امکان
-             * تازه نگه داشته می‌شود.
-             */
+            const tabsEl =
+                document.getElementById('compareTabs');
 
-            var compareCardCount = document.getElementById('compareCardCount');
-            if (compareCardCount) {
-                fetch('compare.php?action=count', { cache: 'no-store' })
-                    .then(function (r) { return r.json(); })
-                    .then(function (data) {
-                        if (!data || !data.success) return;
-                        var n = Number(data.count) || 0;
-                        compareCardCount.textContent = n;
-                        compareCardCount.style.display = n > 0 ? 'inline-flex' : 'none';
-                    })
-                    .catch(function () { /* عدد کارت اختیاری است */ });
+            if (tabsEl) {
+
+                tabsEl.addEventListener(
+                    'click',
+                    function (e) {
+
+                        const ren =
+                            e.target.closest('[data-cmp-rename]');
+
+                        if (ren) {
+
+                            cmpRename(
+                                Number(
+                                    ren.getAttribute('data-cmp-rename')
+                                )
+                            );
+
+                            return;
+                        }
+
+                        const tab =
+                            e.target.closest('[data-cmp-tab]');
+
+                        if (tab) {
+
+                            cmpActive = Number(
+                                tab.getAttribute('data-cmp-tab')
+                            );
+
+                            document.getElementById(
+                                'compareScore'
+                            ).innerHTML = '';
+
+                            cmpRenderTabs();
+                            cmpRenderItems();
+                        }
+                    }
+                );
             }
+
+            const itemsEl =
+                document.getElementById('compareItems');
+
+            if (itemsEl) {
+
+                itemsEl.addEventListener(
+                    'click',
+                    function (e) {
+
+                        const btn =
+                            e.target.closest('[data-cmp-act]');
+
+                        if (!btn) {
+                            return;
+                        }
+
+                        const act =
+                            btn.getAttribute('data-cmp-act');
+
+                        const id =
+                            btn.getAttribute('data-cmp-id');
+
+                        if (act === 'remove') {
+                            cmpRemove(id);
+                        } else if (act === 'move') {
+                            cmpMove(
+                                id,
+                                Number(
+                                    btn.getAttribute('data-cmp-to')
+                                )
+                            );
+                        }
+                    }
+                );
+            }
+
+            document.addEventListener(
+                'melkino:compare-changed',
+                cmpLoad
+            );
+
+            cmpLoad();
         }
     );
 

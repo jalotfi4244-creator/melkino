@@ -39,7 +39,6 @@ if (!function_exists('melkinoBotSettings')) {
         return [
             'telegram_token'        => melkinoBotSetting('telegram_token'),
             'telegram_channel'      => melkinoBotSetting('telegram_channel', defined('CHANNEL_ID') ? CHANNEL_ID : ''),
-            'telegram_channel_link' => melkinoBotSetting('telegram_channel_link'),
             'telegram_bot_username' => ltrim(melkinoBotSetting('telegram_bot_username'), '@'),
             'bale_token'            => melkinoBotSetting('bale_token'),
             'bale_channel'          => melkinoBotSetting('bale_channel'),
@@ -207,10 +206,6 @@ if (!function_exists('melkinoSaveBotSettings')) {
         $values = [
             'telegram_token'        => $keepSecret('telegram_token', trim((string)($data['telegram_token'] ?? ''))),
             'telegram_channel'      => trim((string)($data['telegram_channel'] ?? '')),
-            // لینکِ عضویت در کانال برای دکمهٔ «ورود به کانال» در پروفایل کاربران.
-            // اگر خالی بماند، از @آیدیِ کانال ساخته می‌شود؛ برای کانال‌های
-            // خصوصی (شناسهٔ عددی) باید همین لینک دستی وارد شود.
-            'telegram_channel_link' => trim((string)($data['telegram_channel_link'] ?? '')),
             'telegram_bot_username' => ltrim(trim((string)($data['telegram_bot_username'] ?? '')), '@'),
             'bale_token'            => $keepSecret('bale_token', trim((string)($data['bale_token'] ?? ''))),
             'bale_channel'          => trim((string)($data['bale_channel'] ?? '')),
@@ -232,14 +227,8 @@ if (!function_exists('melkinoSaveBotSettings')) {
             // قبلاً فقط حالتِ متنی پذیرفته می‌شد و ذخیره کردنِ شناسه‌ی
             // عددی — که مطمئن‌ترین راه برای رفعِ خطای
             // «no such group or user» است — با خطا رد می‌شد.
-            // توجه: فقط کلیدهایی که *به* _channel ختم می‌شوند شناسهٔ کانال
-            // هستند؛ telegram_channel_link یک نشانی اینترنتی است و نباید با
-            // الگوی شناسه سنجیده شود.
-            if (substr($k, -8) === '_channel' && $v !== '' && !preg_match('/^(@?[\w]{3,}|-?\d{5,})$/', $v)) {
+            if (strpos($k, '_channel') !== false && $v !== '' && !preg_match('/^(@?[\w]{3,}|-?\d{5,})$/', $v)) {
                 throw new InvalidArgumentException('فرمت شناسه کانال معتبر نیست. می‌تواند @آیدی یا شناسه‌ی عددی باشد.');
-            }
-            if ($k === 'telegram_channel_link' && $v !== '' && !preg_match('#^https?://#i', $v)) {
-                throw new InvalidArgumentException('لینک کانال باید با http:// یا https:// شروع شود (مثلاً https://t.me/melkino_shahrood).');
             }
             if ($k === 'http_proxy' && $v !== '' && !preg_match('#^(https?|socks5h?|socks4)://#i', $v)) {
                 throw new InvalidArgumentException('فرمت پروکسی باید با http:// یا socks5:// شروع شود.');
@@ -303,31 +292,6 @@ if (!function_exists('melkinoChannelId')) {
             return $fromDb;
         }
         return defined('CHANNEL_ID') ? (string)CHANNEL_ID : '';
-    }
-}
-
-/**
- * لینکِ «ورود/عضویت در کانال تلگرام» برای نمایش به کاربران سایت.
- *
- * ترتیب انتخاب:
- *   ۱) لینکی که ادمین در پنل ذخیره کرده (برای کانال خصوصی هم کار می‌کند)
- *   ۲) اگر شناسهٔ کانال @username باشد → https://t.me/username
- *   ۳) در غیر این صورت رشتهٔ خالی (کارت کانال در پروفایل نمایش داده نمی‌شود)
- */
-if (!function_exists('melkinoChannelUrl')) {
-    function melkinoChannelUrl(): string
-    {
-        $link = trim(melkinoBotSetting('telegram_channel_link'));
-        if ($link !== '' && preg_match('#^https?://#i', $link)) {
-            return $link;
-        }
-
-        $channel = trim(melkinoChannelId());
-        if ($channel !== '' && $channel[0] === '@' && strlen($channel) > 4) {
-            return 'https://t.me/' . ltrim($channel, '@');
-        }
-
-        return '';
     }
 }
 
